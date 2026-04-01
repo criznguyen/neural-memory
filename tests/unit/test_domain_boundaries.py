@@ -213,9 +213,7 @@ class TestDomainFilteredContext:
 
         # Simulate domain filtering logic from recall_handler
         context_domain = "financial"
-        hot_memories = await storage.find_typed_memories(
-            tier="hot", limit=100
-        )
+        hot_memories = await storage.find_typed_memories(tier="hot", limit=100)
 
         included = []
         for tm in hot_memories:
@@ -229,9 +227,7 @@ class TestDomainFilteredContext:
         assert "b-fin" in fiber_ids
         assert "b-sec" not in fiber_ids
 
-    async def test_domain_filter_includes_global_boundaries(
-        self, storage: SQLiteStorage
-    ) -> None:
+    async def test_domain_filter_includes_global_boundaries(self, storage: SQLiteStorage) -> None:
         """Global boundaries (no domain tag) are always included."""
         await _create_boundary(storage, "b-global")
         await _create_boundary(storage, "b-fin", domain="financial")
@@ -307,9 +303,7 @@ class TestBoundariesTool:
         await _create_boundary(storage, "b3", domain="security")
         await _create_boundary(storage, "b4")  # global
 
-        boundaries = await storage.find_typed_memories(
-            memory_type=MemoryType.BOUNDARY, limit=1000
-        )
+        boundaries = await storage.find_typed_memories(memory_type=MemoryType.BOUNDARY, limit=1000)
 
         # Simulate _boundaries_domains logic
         domain_counts: dict[str, int] = {}
@@ -325,18 +319,14 @@ class TestBoundariesTool:
         assert domain_counts == {"financial": 2, "security": 1}
         assert unscoped == 1
 
-    async def test_boundaries_list_filtered_by_domain(
-        self, storage: SQLiteStorage
-    ) -> None:
+    async def test_boundaries_list_filtered_by_domain(self, storage: SQLiteStorage) -> None:
         """list action with domain filter returns matching + global boundaries."""
         await _create_boundary(storage, "b-fin1", domain="financial")
         await _create_boundary(storage, "b-fin2", domain="financial")
         await _create_boundary(storage, "b-sec", domain="security")
         await _create_boundary(storage, "b-global")
 
-        boundaries = await storage.find_typed_memories(
-            memory_type=MemoryType.BOUNDARY, limit=1000
-        )
+        boundaries = await storage.find_typed_memories(memory_type=MemoryType.BOUNDARY, limit=1000)
 
         domain_filter = "financial"
         items = []
@@ -359,9 +349,7 @@ class TestBoundariesTool:
         await _create_boundary(storage, "b2", domain="security")
         await _create_boundary(storage, "b3")
 
-        boundaries = await storage.find_typed_memories(
-            memory_type=MemoryType.BOUNDARY, limit=1000
-        )
+        boundaries = await storage.find_typed_memories(memory_type=MemoryType.BOUNDARY, limit=1000)
         assert len(boundaries) == 3
 
 
