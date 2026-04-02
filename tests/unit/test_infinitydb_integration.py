@@ -98,13 +98,23 @@ class TestGetInfinityDBStorage:
     """Per-brain caching, fallback, and migration hints."""
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_sqlite_when_plugin_missing(self, tmp_path: Path) -> None:
-        """When Pro plugin is not installed, should fall back to SQLite."""
+    async def test_falls_back_to_sqlite_when_pro_missing(self, tmp_path: Path) -> None:
+        """When Pro deps are not installed, should fall back to SQLite."""
+        import builtins
+
         cfg = _make_config(tmp_path, brain="test-brain")
         brains_dir = tmp_path / "brains"
         brains_dir.mkdir(parents=True)
 
+        original_import = builtins.__import__
+
+        def mock_import(name: str, *args: object, **kwargs: object) -> object:
+            if name == "neural_memory.pro.storage_adapter":
+                raise ImportError("Simulated missing Pro deps")
+            return original_import(name, *args, **kwargs)
+
         with (
+            patch("builtins.__import__", side_effect=mock_import),
             patch("neural_memory.plugins.get_storage_class", return_value=None),
             patch(
                 "neural_memory.unified_config._get_sqlite_storage", new_callable=AsyncMock
@@ -126,7 +136,9 @@ class TestGetInfinityDBStorage:
         mock_storage.return_value._db = None
 
         with (
-            patch("neural_memory.plugins.get_storage_class", return_value=mock_storage),
+            patch(
+                "neural_memory.pro.storage_adapter.InfinityDBStorage", mock_storage
+            ),
             patch(
                 "neural_memory.unified_config._get_sqlite_storage", new_callable=AsyncMock
             ) as mock_sqlite,
@@ -164,7 +176,9 @@ class TestGetInfinityDBStorage:
         _storage_cache.pop("inf:brain-a", None)
         _storage_cache.pop("inf:brain-b", None)
 
-        with patch("neural_memory.plugins.get_storage_class", return_value=mock_cls):
+        with patch(
+            "neural_memory.pro.storage_adapter.InfinityDBStorage", mock_cls
+        ):
             storage_a = await _get_infinitydb_storage(cfg, "brain-a")
             storage_b = await _get_infinitydb_storage(cfg, "brain-b")
 
@@ -203,7 +217,9 @@ class TestGetInfinityDBStorage:
         import logging
 
         with (
-            patch("neural_memory.plugins.get_storage_class", return_value=mock_storage),
+            patch(
+                "neural_memory.pro.storage_adapter.InfinityDBStorage", mock_storage
+            ),
             caplog.at_level(logging.INFO),
         ):
             await _get_infinitydb_storage(cfg, "my-brain")
