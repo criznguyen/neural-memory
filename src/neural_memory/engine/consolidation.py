@@ -1798,14 +1798,20 @@ class ConsolidationEngine:
             _logger.debug("DETECT_DRIFT failed (non-critical)", exc_info=True)
 
     async def _smart_merge_pro(self, report: ConsolidationReport, dry_run: bool) -> None:
-        """Pro: HNSW-accelerated smart merge via plugin."""
+        """Pro: HNSW-accelerated smart merge (direct import)."""
         _logger = logging.getLogger(__name__)
 
-        from neural_memory.plugins import get_consolidation_strategy
+        merge_fn = None
+        try:
+            from neural_memory.pro.consolidation.smart_merge import smart_merge
 
-        merge_fn = get_consolidation_strategy("smart_merge")
+            merge_fn = smart_merge
+        except ImportError:
+            from neural_memory.plugins import get_consolidation_strategy
+
+            merge_fn = get_consolidation_strategy("smart_merge")
         if merge_fn is None:
-            _logger.debug("SMART_MERGE skipped: Pro plugin not installed")
+            _logger.debug("SMART_MERGE skipped: Pro not available")
             return
 
         db = getattr(self._storage, "_infinitydb", None)

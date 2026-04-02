@@ -123,11 +123,11 @@ def storage_switch(
 
     # Guard: InfinityDB requires Pro
     if backend == "infinitydb":
-        from neural_memory.plugins import has_pro
+        from neural_memory.pro import is_pro_deps_installed
 
-        if not has_pro():
+        if not is_pro_deps_installed():
             typer.secho(
-                "Pro package not installed. Run: pip install neural-memory-pro",
+                'Pro dependencies not installed. Run: pip install "neural-memory[pro]"',
                 fg=typer.colors.RED,
             )
             raise typer.Exit(1)

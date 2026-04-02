@@ -1979,7 +1979,7 @@ _falkordb_storage: NeuralStorage | None = None
 
 
 async def _get_infinitydb_storage(config: UnifiedConfig, name: str) -> NeuralStorage:
-    """Create or return cached InfinityDB storage (Pro plugin).
+    """Create or return cached InfinityDB storage (direct import).
 
     Each brain gets its own InfinityDB instance (separate directory with
     binary files), cached in _storage_cache with an 'inf:' prefix to avoid
@@ -1987,12 +1987,19 @@ async def _get_infinitydb_storage(config: UnifiedConfig, name: str) -> NeuralSto
     """
     lock = _get_storage_lock()
 
-    from neural_memory.plugins import get_storage_class
+    storage_cls: type | None = None
+    try:
+        from neural_memory.pro.storage_adapter import InfinityDBStorage
 
-    storage_cls = get_storage_class()
+        storage_cls = InfinityDBStorage
+    except ImportError:
+        from neural_memory.plugins import get_storage_class
+
+        storage_cls = get_storage_class()
     if storage_cls is None:
         logger.warning(
-            "InfinityDB backend requested but Pro plugin not installed, falling back to SQLite"
+            "InfinityDB backend requested but Pro deps not installed. "
+            'Install with: pip install "neural-memory[pro]"  — falling back to SQLite'
         )
         return await _get_sqlite_storage(config, name, None)
 

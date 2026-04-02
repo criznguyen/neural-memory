@@ -362,11 +362,18 @@ class ReflexPipeline:
             strategy = await self._auto_select_strategy()
 
         if strategy == "cone":
-            # Pro cone queries: HNSW nearest-neighbor via plugin
+            # Pro cone queries: HNSW nearest-neighbor (direct import)
             cone_done = False
-            from neural_memory.plugins import get_retrieval_strategy
+            cone_fn = None
+            try:
+                from neural_memory.pro.retrieval.cone_queries import cone_recall
 
-            cone_fn = get_retrieval_strategy("cone")
+                cone_fn = cone_recall
+            except ImportError:
+                # Fallback: try plugin registry for third-party extensions
+                from neural_memory.plugins import get_retrieval_strategy
+
+                cone_fn = get_retrieval_strategy("cone")
             if cone_fn is not None and self._embedding_provider is not None:
                 try:
                     db = getattr(self._storage, "_infinitydb", None)
