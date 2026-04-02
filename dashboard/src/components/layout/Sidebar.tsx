@@ -13,6 +13,7 @@ import {
   Sparkle,
   ChartBar,
   ChartLine,
+  Gauge,
 } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 import { useLayoutStore } from "@/stores/useLayoutStore"
@@ -30,6 +31,7 @@ const navItems = [
   { to: "/tool-stats", icon: ChartBar, labelKey: "nav.toolStats" },
   { to: "/visualize", icon: ChartLine, labelKey: "nav.visualize" },
   { to: "/storage", icon: HardDrive, labelKey: "nav.storage" },
+  { to: "/tier-analytics", icon: Gauge, labelKey: "nav.tierAnalytics" },
   { to: "/settings", icon: Gear, labelKey: "nav.settings" },
 ] as const
 

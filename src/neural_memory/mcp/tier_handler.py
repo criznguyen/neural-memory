@@ -6,21 +6,38 @@ Provides the nmem_tier tool with actions:
 - apply: Apply tier changes
 - history: Show promotion history for a memory
 - config: Show/update tier configuration
+- analytics: Breakdown by memory type + velocity + recent changes
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from neural_memory.core.memory_types import MemoryTier, MemoryType
 from neural_memory.mcp.tool_handler_utils import _get_brain_or_error
+from neural_memory.utils.timeutils import utcnow
 
 if TYPE_CHECKING:
     from neural_memory.storage.base import NeuralStorage
     from neural_memory.unified_config import UnifiedConfig
 
 logger = logging.getLogger(__name__)
+
+# Tier ordering for classifying change direction
+_TIER_ORDER: dict[str, int] = {"cold": 0, "warm": 1, "hot": 2}
+
+
+def _classify_change(from_tier: str, to_tier: str) -> str:
+    """Classify a tier change as promoted, demoted, or archived."""
+    from_rank = _TIER_ORDER.get(from_tier, 1)
+    to_rank = _TIER_ORDER.get(to_tier, 1)
+    if to_tier == MemoryTier.COLD:
+        return "archived"
+    if to_rank > from_rank:
+        return "promoted"
+    return "demoted"
 
 
 class TierHandler:
@@ -46,6 +63,8 @@ class TierHandler:
             return await self._tier_history(args.get("fiber_id", ""))
         elif action == "config":
             return self._tier_config()
+        elif action == "analytics":
+            return await self._tier_analytics()
         return {"error": f"Unknown tier action: {action}"}
 
     async def _tier_status(self) -> dict[str, Any]:
@@ -150,6 +169,78 @@ class TierHandler:
             "cold_archive_days": self.config.tiers.cold_archive_days,
             "max_hot_memories": self.config.tiers.max_hot_memories,
             "hint": "Edit ~/.neuralmemory/config.toml [tiers] section to change thresholds.",
+        }
+
+    async def _tier_analytics(self) -> dict[str, Any]:
+        """Tier analytics: breakdown by memory type, velocity, recent changes."""
+        storage = await self.get_storage()
+        brain, err = await _get_brain_or_error(storage)
+        if err:
+            return err
+
+        # 1. Breakdown by memory type x tier (SQL aggregate — no full fetch)
+        breakdown: dict[str, dict[str, int]] = {}
+        grouped = await storage.count_typed_memories_grouped()
+        total_memories = 0
+        for memory_type, tier, count in grouped:
+            if memory_type not in breakdown:
+                breakdown[memory_type] = {MemoryTier.HOT: 0, MemoryTier.WARM: 0, MemoryTier.COLD: 0}
+            breakdown[memory_type][tier] = count
+            total_memories += count
+
+        # 2. Collect recent tier changes from promotion_history metadata
+        all_typed = await storage.find_typed_memories(limit=1000)
+        now = utcnow()
+        cutoff_7d = now - timedelta(days=7)
+        cutoff_30d = now - timedelta(days=30)
+        recent_changes: list[dict[str, Any]] = []
+        velocity_7d = {"promoted": 0, "demoted": 0, "archived": 0}
+        velocity_30d = {"promoted": 0, "demoted": 0, "archived": 0}
+
+        for tm in all_typed:
+            history = tm.metadata.get("promotion_history", [])
+            type_key = (
+                tm.memory_type.value
+                if isinstance(tm.memory_type, MemoryType)
+                else str(tm.memory_type)
+            )
+            for entry in history:
+                event = {
+                    "fiber_id": tm.fiber_id,
+                    "memory_type": type_key,
+                    "from_tier": entry.get("from", ""),
+                    "to_tier": entry.get("to", ""),
+                    "reason": entry.get("reason", ""),
+                    "at": entry.get("at", ""),
+                }
+                recent_changes.append(event)
+
+                # Classify change direction for velocity
+                from_t = entry.get("from", "")
+                to_t = entry.get("to", "")
+                direction = _classify_change(from_t, to_t)
+                try:
+                    from datetime import datetime
+
+                    ts = datetime.fromisoformat(entry["at"])
+                    if ts >= cutoff_7d:
+                        velocity_7d[direction] = velocity_7d.get(direction, 0) + 1
+                    if ts >= cutoff_30d:
+                        velocity_30d[direction] = velocity_30d.get(direction, 0) + 1
+                except (KeyError, ValueError, TypeError):
+                    pass
+
+        # Sort recent changes by timestamp descending, limit to 50
+        recent_changes.sort(key=lambda e: e.get("at", ""), reverse=True)
+        recent_changes = recent_changes[:50]
+
+        return {
+            "brain": brain.name,
+            "breakdown_by_type": breakdown,
+            "velocity_7d": velocity_7d,
+            "velocity_30d": velocity_30d,
+            "recent_changes": recent_changes,
+            "total_memories": total_memories,
         }
 
     async def _boundaries(self, args: dict[str, Any]) -> dict[str, Any]:

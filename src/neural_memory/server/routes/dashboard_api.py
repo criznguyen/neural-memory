@@ -181,6 +181,102 @@ async def get_tier_stats(
 
 
 @router.get(
+    "/tier-analytics",
+    summary="Get tier analytics — breakdown by memory type + velocity metrics",
+)
+async def get_tier_analytics(
+    storage: Annotated[NeuralStorage, Depends(get_storage)],
+) -> dict[str, Any]:
+    """Get tier analytics: breakdown by type, velocity (7d/30d), recent changes."""
+    from datetime import timedelta
+
+    from neural_memory.core.memory_types import MemoryTier
+    from neural_memory.mcp.tier_handler import _classify_change
+    from neural_memory.utils.timeutils import utcnow
+
+    now = utcnow()
+    cutoff_7d = now - timedelta(days=7)
+    cutoff_30d = now - timedelta(days=30)
+
+    # Breakdown by memory type x tier (SQL aggregate — no full fetch)
+    breakdown: dict[str, dict[str, int]] = {}
+    grouped = await storage.count_typed_memories_grouped()
+    total_memories = 0
+    for memory_type, tier, count in grouped:
+        if memory_type not in breakdown:
+            breakdown[memory_type] = {MemoryTier.HOT: 0, MemoryTier.WARM: 0, MemoryTier.COLD: 0}
+        breakdown[memory_type][tier] = count
+        total_memories += count
+
+    # Velocity from promotion_history metadata (needs full fetch for metadata)
+    all_typed = await storage.find_typed_memories(limit=1000)
+    velocity_7d = {"promoted": 0, "demoted": 0, "archived": 0}
+    velocity_30d = {"promoted": 0, "demoted": 0, "archived": 0}
+    for tm in all_typed:
+        for entry in tm.metadata.get("promotion_history", []):
+            direction = _classify_change(entry.get("from", ""), entry.get("to", ""))
+            try:
+                ts = datetime.fromisoformat(entry["at"])
+                if ts >= cutoff_7d:
+                    velocity_7d[direction] = velocity_7d.get(direction, 0) + 1
+                if ts >= cutoff_30d:
+                    velocity_30d[direction] = velocity_30d.get(direction, 0) + 1
+            except (KeyError, ValueError, TypeError):
+                pass
+
+    return {
+        "breakdown_by_type": breakdown,
+        "velocity_7d": velocity_7d,
+        "velocity_30d": velocity_30d,
+        "total_memories": total_memories,
+    }
+
+
+@router.get(
+    "/tier-history",
+    summary="Get paginated tier change events",
+)
+async def get_tier_history(
+    storage: Annotated[NeuralStorage, Depends(get_storage)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict[str, Any]:
+    """Get recent tier change events across all memories."""
+    from neural_memory.core.memory_types import MemoryType
+
+    all_typed = await storage.find_typed_memories(limit=1000)
+    events: list[dict[str, Any]] = []
+
+    for tm in all_typed:
+        type_key = (
+            tm.memory_type.value if isinstance(tm.memory_type, MemoryType) else str(tm.memory_type)
+        )
+        for entry in tm.metadata.get("promotion_history", []):
+            events.append(
+                {
+                    "fiber_id": tm.fiber_id,
+                    "memory_type": type_key,
+                    "from_tier": entry.get("from", ""),
+                    "to_tier": entry.get("to", ""),
+                    "reason": entry.get("reason", ""),
+                    "at": entry.get("at", ""),
+                }
+            )
+
+    # Sort by timestamp descending
+    events.sort(key=lambda e: e.get("at", ""), reverse=True)
+    total = len(events)
+    page = events[offset : offset + limit]
+
+    return {
+        "events": page,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@router.get(
     "/brains",
     response_model=list[BrainSummary],
     summary="List all brains",
