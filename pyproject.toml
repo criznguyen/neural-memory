@@ -60,6 +60,11 @@ postgres = [
 encryption = [
     "cryptography>=46.0.5",
 ]
+pro = [
+    "numpy>=1.24.0",
+    "hnswlib>=0.8.0",
+    "msgpack>=1.0.0",
+]
 nlp-en = [
     "spacy>=3.6",
 ]
@@ -115,7 +120,7 @@ integration = [
     "neural-memory[chromadb,mem0]",
 ]
 all = [
-    "neural-memory[server,falkordb,nlp,integration]",
+    "neural-memory[server,falkordb,pro,nlp,integration]",
 ]
 dev = [
     "pytest>=7.0",

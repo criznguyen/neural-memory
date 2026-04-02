@@ -196,7 +196,7 @@ Pro  (HNSW):  7 results — includes "JWT rotation", "session hardening", "OAuth
 ### Get Pro
 
 ```bash
-pip install neural-memory-pro         # install Pro package
+pip install "neural-memory[pro]"       # install Pro dependencies
 nmem pro activate YOUR_LICENSE_KEY    # activate license
 nmem pro status                       # verify: Pro: Active
 ```
@@ -258,7 +258,7 @@ Set memory slot in `~/.openclaw/openclaw.json`:
 Already using Neural Memory? Upgrade in 3 steps:
 
 ```bash
-pip install neural-memory-pro         # 1. install Pro package
+pip install "neural-memory[pro]"       # 1. install Pro dependencies
 nmem pro activate YOUR_LICENSE_KEY    # 2. activate license
 ```
 
