@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [4.27.0] — 2026-04-02
 
 ### Changed
 
@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - License key activation unchanged: `nmem pro activate <KEY>`
   - Plugin system preserved for third-party extensions
   - Existing `neural-memory-pro` installs continue to work (plugin fallback) but are now redundant
+
+### Added
+
+- 301 Pro tests migrated to `tests/unit/pro/` (auto-skip when Pro deps missing)
 
 ## [4.26.0] — 2026-04-02
 
