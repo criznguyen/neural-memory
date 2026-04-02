@@ -7,15 +7,15 @@ import { api } from "@/api/client"
 import { useTranslation } from "react-i18next"
 import {
   SquaresFour,
-  Heartbeat,
+  Lightbulb,
   Graph,
-  Clock,
-  TrendUp,
   ShareNetwork,
   Cloud,
   Gear,
   Sparkle,
-  ChartBar,
+  ChartLine,
+  Gauge,
+  HardDrive,
   MagnifyingGlass,
   Stack,
   Brain,
@@ -40,14 +40,17 @@ interface NeuronResult {
 
 const pages = [
   { path: "/", icon: SquaresFour, labelKey: "nav.overview" },
-  { path: "/health", icon: Heartbeat, labelKey: "nav.health" },
+  { path: "/insights?tab=health", icon: Lightbulb, labelKey: "nav.health" },
+  { path: "/insights?tab=timeline", icon: Lightbulb, labelKey: "nav.timeline" },
+  { path: "/insights?tab=evolution", icon: Lightbulb, labelKey: "nav.evolution" },
+  { path: "/insights?tab=tools", icon: Lightbulb, labelKey: "nav.toolStats" },
   { path: "/graph", icon: Graph, labelKey: "nav.graph" },
-  { path: "/timeline", icon: Clock, labelKey: "nav.timeline" },
-  { path: "/evolution", icon: TrendUp, labelKey: "nav.evolution" },
   { path: "/diagrams", icon: ShareNetwork, labelKey: "nav.mindmap" },
-  { path: "/sync", icon: Cloud, labelKey: "nav.sync" },
+  { path: "/visualize", icon: ChartLine, labelKey: "nav.visualize" },
   { path: "/oracle", icon: Sparkle, labelKey: "nav.oracle" },
-  { path: "/tool-stats", icon: ChartBar, labelKey: "nav.toolStats" },
+  { path: "/sync", icon: Cloud, labelKey: "nav.sync" },
+  { path: "/storage", icon: HardDrive, labelKey: "nav.storage" },
+  { path: "/tier-analytics", icon: Gauge, labelKey: "nav.tierAnalytics" },
   { path: "/settings", icon: Gear, labelKey: "nav.settings" },
 ] as const
 

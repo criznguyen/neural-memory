@@ -13,6 +13,7 @@ app.use(
   cors({
     origin: [
       "https://neuralmemory.theio.vn",
+      "https://companion.theio.vn",
       "https://nhadaututtheky.github.io",
       "http://localhost:3000",
     ],
@@ -47,21 +48,32 @@ const PRO_FEATURES = [
   "infinity_db",
 ];
 
-// Verify endpoint — D1 primary, XLabs API fallback
-app.post("/verify", async (c) => {
-  const body = await c.req.json<{ key: string }>();
-  const key = (body.key || "").trim();
+// ── Shared verify logic ────────────────────────────────────────────────────
 
+async function verifyKey(c: any, key: string) {
   if (!key) {
     return c.json({ valid: false, error: "Missing key" });
   }
 
-  // Normalize: nm_pro_xxxx → NM-PRO-XXXX
   const normalizedKey = key.startsWith("nm_")
     ? key.replaceAll("_", "-").toUpperCase()
     : key.toUpperCase();
 
-  // 1. Check D1 (primary — fulfilled orders have license_key)
+  // Companion keys (CPN-*) → forward to companion-verify via Service Binding
+  if (normalizedKey.startsWith("CPN-")) {
+    try {
+      const worker = c.env.COMPANION_WORKER;
+      const res = await worker.fetch(
+        new Request(`https://companion.theio.vn/verify?key=${encodeURIComponent(key)}`),
+      );
+      const data = await res.json();
+      return c.json(data, res.status);
+    } catch {
+      return c.json({ valid: false, error: "Companion verify unreachable" }, 502);
+    }
+  }
+
+  // NM keys → D1 primary, XLabs fallback
   const db = c.env.PAY_DB;
   const d1Order = await db
     .prepare(
@@ -80,7 +92,6 @@ app.post("/verify", async (c) => {
     });
   }
 
-  // 2. Fallback: check XLabs API
   try {
     const res = await fetch("https://admin.theio.vn/api/licenses", {
       headers: { Authorization: `Bearer ${c.env.XLABS_API_KEY}` },
@@ -121,10 +132,89 @@ app.post("/verify", async (c) => {
       }
     }
   } catch {
-    // XLabs API unreachable — D1 was already checked, report not found
+    // XLabs API unreachable
   }
 
   return c.json({ valid: false, error: "Invalid or expired license key" });
+}
+
+// ── License sync relay (XLabs → companion-verify via Service Binding) ──────
+
+app.post("/admin/license/sync", async (c) => {
+  // Auth: XLabs webhook secret or companion admin secret
+  const auth = c.req.header("Authorization");
+  const expected = `Bearer ${c.env.COMPANION_ADMIN_SECRET}`;
+  if (auth !== expected) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const body = await c.req.json<{
+    action: "create" | "revoke";
+    license_key: string;
+    tier?: string;
+    email?: string;
+    name?: string;
+    max_sessions?: number;
+    expires_at?: string;
+    duration_days?: number;
+  }>();
+
+  const worker = c.env.COMPANION_WORKER;
+
+  if (body.action === "create") {
+    let durationDays = body.duration_days ?? 370;
+    if (body.expires_at) {
+      const ms = new Date(body.expires_at).getTime() - Date.now();
+      durationDays = Math.max(1, Math.ceil(ms / 86_400_000));
+    }
+
+    const res = await worker.fetch(
+      new Request("https://companion.theio.vn/admin/create", {
+        method: "POST",
+        headers: {
+          Authorization: expected,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          key: body.license_key,
+          tier: body.tier ?? "pro",
+          email: body.email ?? "",
+          durationDays,
+        }),
+      }),
+    );
+    const data = await res.json();
+    return c.json(data, res.status);
+  }
+
+  if (body.action === "revoke") {
+    const res = await worker.fetch(
+      new Request("https://companion.theio.vn/admin/revoke", {
+        method: "POST",
+        headers: {
+          Authorization: expected,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ key: body.license_key }),
+      }),
+    );
+    const data = await res.json();
+    return c.json(data, res.status);
+  }
+
+  return c.json({ error: "Invalid action" }, 400);
+});
+
+// Verify endpoint — supports both GET (Companion app) and POST (legacy)
+app.get("/verify", async (c) => {
+  const key = (c.req.query("key") || "").trim();
+  return verifyKey(c, key);
+});
+
+app.post("/verify", async (c) => {
+  const body = await c.req.json<{ key: string }>();
+  const key = (body.key || "").trim();
+  return verifyKey(c, key);
 });
 
 export default app;

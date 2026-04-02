@@ -1,39 +1,44 @@
 import { NavLink } from "react-router-dom"
 import {
   SquaresFour,
-  Heartbeat,
+  Lightbulb,
   Graph,
-  Clock,
-  TrendUp,
   ShareNetwork,
   Cloud,
   HardDrive,
   Gear,
   Brain,
   Sparkle,
-  ChartBar,
   ChartLine,
   Gauge,
 } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 import { useLayoutStore } from "@/stores/useLayoutStore"
 import { useTranslation } from "react-i18next"
+import type { ElementType } from "react"
 
-const navItems = [
+interface NavItem {
+  to: string
+  icon: ElementType
+  labelKey: string
+  separator?: boolean
+}
+
+const navItems: NavItem[] = [
+  // ── Core (Free) ──
   { to: "/", icon: SquaresFour, labelKey: "nav.overview" },
-  { to: "/health", icon: Heartbeat, labelKey: "nav.health" },
+  { to: "/insights", icon: Lightbulb, labelKey: "nav.insights" },
   { to: "/graph", icon: Graph, labelKey: "nav.graph" },
-  { to: "/timeline", icon: Clock, labelKey: "nav.timeline" },
-  { to: "/evolution", icon: TrendUp, labelKey: "nav.evolution" },
   { to: "/diagrams", icon: ShareNetwork, labelKey: "nav.mindmap" },
-  { to: "/sync", icon: Cloud, labelKey: "nav.sync" },
+  // ── Pro ──
+  { to: "/visualize", icon: ChartLine, labelKey: "nav.visualize", separator: true },
   { to: "/oracle", icon: Sparkle, labelKey: "nav.oracle" },
-  { to: "/tool-stats", icon: ChartBar, labelKey: "nav.toolStats" },
-  { to: "/visualize", icon: ChartLine, labelKey: "nav.visualize" },
+  { to: "/sync", icon: Cloud, labelKey: "nav.sync" },
   { to: "/storage", icon: HardDrive, labelKey: "nav.storage" },
   { to: "/tier-analytics", icon: Gauge, labelKey: "nav.tierAnalytics" },
-  { to: "/settings", icon: Gear, labelKey: "nav.settings" },
-] as const
+  // ── Settings ──
+  { to: "/settings", icon: Gear, labelKey: "nav.settings", separator: true },
+]
 
 export function Sidebar() {
   const sidebarOpen = useLayoutStore((s) => s.sidebarOpen)
@@ -58,27 +63,31 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 p-2" aria-label={t("common.mainNavigation")}>
-        {navItems.map(({ to, icon: Icon, labelKey }) => {
+        {navItems.map(({ to, icon: Icon, labelKey, separator }) => {
           const label = t(labelKey)
           return (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === "/"}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
-                  isActive
-                    ? "bg-sidebar-accent text-sidebar-primary"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground",
-                  !sidebarOpen && "justify-center px-0",
-                )
-              }
-              title={label}
-            >
-              <Icon className="size-5 shrink-0" aria-hidden="true" />
-              {sidebarOpen && <span>{label}</span>}
-            </NavLink>
+            <div key={to}>
+              {separator && (
+                <div className="my-2 border-t border-sidebar-border" />
+              )}
+              <NavLink
+                to={to}
+                end={to === "/"}
+                className={({ isActive }) =>
+                  cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
+                    isActive
+                      ? "bg-sidebar-accent text-sidebar-primary"
+                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                    !sidebarOpen && "justify-center px-0",
+                  )
+                }
+                title={label}
+              >
+                <Icon className="size-5 shrink-0" aria-hidden="true" />
+                {sidebarOpen && <span>{label}</span>}
+              </NavLink>
+            </div>
           )
         })}
       </nav>
