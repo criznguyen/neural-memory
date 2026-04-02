@@ -2068,23 +2068,17 @@ async def _open_infinitydb_storage(
     cfg: Any,
     brain_name: str,
 ) -> Any:
-    """Open an InfinityDB storage instance for the given brain (Pro plugin)."""
-    from neural_memory.plugins import get_storage_class
-
-    storage_cls = get_storage_class()
-    if storage_cls is None:
-        raise RuntimeError("InfinityDB storage class not available — Pro plugin not installed")
+    """Open an InfinityDB storage instance for the given brain."""
+    try:
+        from neural_memory.pro.storage_adapter import InfinityDBStorage
+    except ImportError:
+        raise RuntimeError(  # noqa: B904
+            "InfinityDB storage not available — Pro dependencies not installed"
+        )
 
     brains_dir = Path(cfg.data_dir) / "brains"
-    brain_dir = brains_dir / brain_name
-    brain_dir.mkdir(parents=True, exist_ok=True)
 
-    storage = storage_cls(str(brain_dir))
+    storage = InfinityDBStorage(base_dir=str(brains_dir), brain_id=brain_name)
     await storage.initialize()
-
-    brain_list = await storage.list_brains()
-    if brain_list:
-        brain_id = brain_list[0].get("id") or brain_list[0].get("name")
-        storage.set_brain(brain_id)
 
     return storage

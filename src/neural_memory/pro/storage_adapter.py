@@ -146,6 +146,8 @@ class InfinityDBStorage(NeuralStorage):
     async def open(self) -> None:
         """Open the InfinityDB storage."""
         brain_id = self._current_brain_id or "default"
+        brain_dir = self._base_dir / brain_id
+        brain_dir.mkdir(parents=True, exist_ok=True)
         self._db = InfinityDB(
             self._base_dir,
             brain_id=brain_id,
@@ -153,6 +155,12 @@ class InfinityDBStorage(NeuralStorage):
             tier_config=self._tier_config,
         )
         await self._db.open()
+
+    async def initialize(self) -> None:
+        """Alias for open() — compatibility with dashboard migration code."""
+        if self._db is not None:
+            return  # Already open, no-op
+        await self.open()
 
     async def close(self) -> None:
         """Close the storage."""
@@ -163,6 +171,11 @@ class InfinityDBStorage(NeuralStorage):
     def set_brain(self, brain_id: str) -> None:
         """Set the active brain. Requires reopen."""
         self._current_brain_id = brain_id
+
+    async def list_brains(self) -> list[dict[str, str]]:
+        """Return brain list for compatibility with dashboard migration code."""
+        bid = self._current_brain_id or "default"
+        return [{"id": bid, "name": bid}]
 
     # ========== Neuron Operations ==========
 
