@@ -37,19 +37,19 @@ logger = logging.getLogger(__name__)
 # FTS query builder (SQLite FTS5 syntax -- dialect decides when to use it)
 # ---------------------------------------------------------------------------
 
+
 def _build_fts_query(search_term: str) -> str:
     """Build an FTS5 MATCH expression from a user search string."""
     tokens = search_term.split()
     if not tokens:
         return '""'
-    return " ".join(
-        f'"{token.replace(chr(34), chr(34) + chr(34))}"' for token in tokens
-    )
+    return " ".join(f'"{token.replace(chr(34), chr(34) + chr(34))}"' for token in tokens)
 
 
 # ---------------------------------------------------------------------------
 # FiberMixin
 # ---------------------------------------------------------------------------
+
 
 class FiberMixin:
     """Dialect-agnostic fiber CRUD.
@@ -74,29 +74,29 @@ class FiberMixin:
         brain_id = self._get_brain_id()
 
         params: list[Any] = [
-            fiber.id,                                   # 1
-            brain_id,                                   # 2
-            json.dumps(list(fiber.neuron_ids)),          # 3
-            json.dumps(list(fiber.synapse_ids)),         # 4
-            fiber.anchor_neuron_id,                      # 5
-            json.dumps(fiber.pathway),                   # 6
-            fiber.conductivity,                          # 7
-            d.serialize_dt(fiber.last_conducted),        # 8
-            d.serialize_dt(fiber.time_start),            # 9
-            d.serialize_dt(fiber.time_end),              # 10
-            fiber.coherence,                             # 11
-            fiber.salience,                              # 12
-            fiber.frequency,                             # 13
-            fiber.summary,                               # 14
-            fiber.essence,                               # 15
-            d.serialize_dt(fiber.last_ghost_shown_at),   # 16
-            json.dumps(list(fiber.tags)),                # 17
-            json.dumps(list(fiber.auto_tags)),           # 18
-            json.dumps(list(fiber.agent_tags)),          # 19
-            json.dumps(fiber.metadata),                  # 20
-            fiber.compression_tier,                      # 21
-            1 if fiber.pinned else 0,                    # 22
-            d.serialize_dt(fiber.created_at),            # 23
+            fiber.id,  # 1
+            brain_id,  # 2
+            json.dumps(list(fiber.neuron_ids)),  # 3
+            json.dumps(list(fiber.synapse_ids)),  # 4
+            fiber.anchor_neuron_id,  # 5
+            json.dumps(fiber.pathway),  # 6
+            fiber.conductivity,  # 7
+            d.serialize_dt(fiber.last_conducted),  # 8
+            d.serialize_dt(fiber.time_start),  # 9
+            d.serialize_dt(fiber.time_end),  # 10
+            fiber.coherence,  # 11
+            fiber.salience,  # 12
+            fiber.frequency,  # 13
+            fiber.summary,  # 14
+            fiber.essence,  # 15
+            d.serialize_dt(fiber.last_ghost_shown_at),  # 16
+            json.dumps(list(fiber.tags)),  # 17
+            json.dumps(list(fiber.auto_tags)),  # 18
+            json.dumps(list(fiber.agent_tags)),  # 19
+            json.dumps(fiber.metadata),  # 20
+            fiber.compression_tier,  # 21
+            1 if fiber.pinned else 0,  # 22
+            d.serialize_dt(fiber.created_at),  # 23
         ]
 
         await d.execute(
@@ -145,9 +145,7 @@ class FiberMixin:
     # ------------------------------------------------------------------ search
     # ------------------------------------------------------------------
 
-    async def search_fiber_summaries(
-        self, query: str, *, limit: int = 10
-    ) -> list[Fiber]:
+    async def search_fiber_summaries(self, query: str, *, limit: int = 10) -> list[Fiber]:
         """Search fiber summaries using full-text search.
 
         Returns fibers whose summary matches the query.
@@ -332,28 +330,28 @@ class FiberMixin:
         brain_id = self._get_brain_id()
 
         params: list[Any] = [
-            json.dumps(list(fiber.neuron_ids)),          # 1
-            json.dumps(list(fiber.synapse_ids)),         # 2
-            fiber.anchor_neuron_id,                      # 3
-            json.dumps(fiber.pathway),                   # 4
-            fiber.conductivity,                          # 5
-            d.serialize_dt(fiber.last_conducted),        # 6
-            d.serialize_dt(fiber.time_start),            # 7
-            d.serialize_dt(fiber.time_end),              # 8
-            fiber.coherence,                             # 9
-            fiber.salience,                              # 10
-            fiber.frequency,                             # 11
-            fiber.summary,                               # 12
-            fiber.essence,                               # 13
-            d.serialize_dt(fiber.last_ghost_shown_at),   # 14
-            json.dumps(list(fiber.tags)),                # 15
-            json.dumps(list(fiber.auto_tags)),           # 16
-            json.dumps(list(fiber.agent_tags)),          # 17
-            json.dumps(fiber.metadata),                  # 18
-            fiber.compression_tier,                      # 19
-            1 if fiber.pinned else 0,                    # 20
-            fiber.id,                                    # 21
-            brain_id,                                    # 22
+            json.dumps(list(fiber.neuron_ids)),  # 1
+            json.dumps(list(fiber.synapse_ids)),  # 2
+            fiber.anchor_neuron_id,  # 3
+            json.dumps(fiber.pathway),  # 4
+            fiber.conductivity,  # 5
+            d.serialize_dt(fiber.last_conducted),  # 6
+            d.serialize_dt(fiber.time_start),  # 7
+            d.serialize_dt(fiber.time_end),  # 8
+            fiber.coherence,  # 9
+            fiber.salience,  # 10
+            fiber.frequency,  # 11
+            fiber.summary,  # 12
+            fiber.essence,  # 13
+            d.serialize_dt(fiber.last_ghost_shown_at),  # 14
+            json.dumps(list(fiber.tags)),  # 15
+            json.dumps(list(fiber.auto_tags)),  # 16
+            json.dumps(list(fiber.agent_tags)),  # 17
+            json.dumps(fiber.metadata),  # 18
+            fiber.compression_tier,  # 19
+            1 if fiber.pinned else 0,  # 20
+            fiber.id,  # 21
+            brain_id,  # 22
         ]
 
         await d.execute(
@@ -389,9 +387,7 @@ class FiberMixin:
                 [(brain_id, fiber.id, nid) for nid in fiber.neuron_ids],
             )
 
-    async def update_fiber_metadata(
-        self, fiber_id: str, metadata: dict[str, Any]
-    ) -> None:
+    async def update_fiber_metadata(self, fiber_id: str, metadata: dict[str, Any]) -> None:
         """Update only the metadata JSON column for a fiber (lightweight patch).
 
         Fetches the current fiber, merges the provided metadata on top, then
@@ -490,11 +486,7 @@ class FiberMixin:
         for row in rows:
             d_row = dict(row)
             tags_raw = d_row.get("tags")
-            tags = (
-                json.loads(tags_raw)
-                if isinstance(tags_raw, str)
-                else (tags_raw or [])
-            )
+            tags = json.loads(tags_raw) if isinstance(tags_raw, str) else (tags_raw or [])
             results.append(
                 {
                     "fiber_id": str(d_row.get("id")),
@@ -525,8 +517,7 @@ class FiberMixin:
         params: list[Any] = [pin_val, brain_id, *in_params]
 
         count = await d.execute_count(
-            f"UPDATE fibers SET pinned = {d.ph(1)} "
-            f"WHERE brain_id = {d.ph(2)} AND id {in_sql}",
+            f"UPDATE fibers SET pinned = {d.ph(1)} WHERE brain_id = {d.ph(2)} AND id {in_sql}",
             params,
         )
         return count
@@ -534,9 +525,7 @@ class FiberMixin:
     # ------------------------------------------------------------------ stale / stage / count
     # ------------------------------------------------------------------
 
-    async def get_stale_fiber_count(
-        self, brain_id: str, stale_days: int = 90
-    ) -> int:
+    async def get_stale_fiber_count(self, brain_id: str, stale_days: int = 90) -> int:
         d = self._dialect
         cutoff = d.serialize_dt(utcnow() - timedelta(days=stale_days))
 
@@ -554,8 +543,7 @@ class FiberMixin:
     async def get_fiber_stage_counts(self, brain_id: str) -> dict[str, int]:
         d = self._dialect
         rows = await d.fetch_all(
-            f"SELECT stage, COUNT(*) AS cnt FROM fibers "
-            f"WHERE brain_id = {d.ph(1)} GROUP BY stage",
+            f"SELECT stage, COUNT(*) AS cnt FROM fibers WHERE brain_id = {d.ph(1)} GROUP BY stage",
             (brain_id,),
         )
         return {row["stage"]: int(row["cnt"]) for row in rows}
@@ -573,9 +561,7 @@ class FiberMixin:
     # ------------------------------------------------------------------ ghost / keyword df
     # ------------------------------------------------------------------
 
-    async def batch_update_ghost_shown(
-        self, fiber_ids: list[str], timestamp: datetime
-    ) -> int:
+    async def batch_update_ghost_shown(self, fiber_ids: list[str], timestamp: datetime) -> int:
         """Batch update last_ghost_shown_at for multiple fibers in one query."""
         if not fiber_ids:
             return 0

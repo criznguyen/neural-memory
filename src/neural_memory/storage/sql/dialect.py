@@ -134,9 +134,7 @@ class Dialect(ABC):
         return ", ".join(self.ph(i) for i in range(start, start + count))
 
     @abstractmethod
-    def in_clause(
-        self, param_start: int, values: Sequence[Any]
-    ) -> tuple[str, list[Any]]:
+    def in_clause(self, param_start: int, values: Sequence[Any]) -> tuple[str, list[Any]]:
         """Build an IN clause for the given values.
 
         SQLite: returns ``"IN (?, ?, ?)", [v1, v2, v3]``
@@ -188,18 +186,14 @@ class Dialect(ABC):
     # Full-text search
     # ------------------------------------------------------------------
 
-    def fts_neuron_query(
-        self, term_param: int, brain_id_param: int
-    ) -> tuple[str, str]:
+    def fts_neuron_query(self, term_param: int, brain_id_param: int) -> tuple[str, str]:
         """Return (FROM clause, WHERE clause) for neuron FTS.
 
         Raises NotImplementedError if FTS is not supported.
         """
         raise NotImplementedError(f"{self.name} dialect does not support FTS")
 
-    def fts_fiber_query(
-        self, term_param: int, brain_id_param: int
-    ) -> tuple[str, str]:
+    def fts_fiber_query(self, term_param: int, brain_id_param: int) -> tuple[str, str]:
         """Return (FROM clause, WHERE clause) for fiber FTS."""
         raise NotImplementedError(f"{self.name} dialect does not support FTS")
 
@@ -229,10 +223,7 @@ class Dialect(ABC):
         SQLite: ``EXISTS (SELECT 1 FROM json_each(column) WHERE value = ?)``
         PostgreSQL: ``column @> $N::jsonb``
         """
-        return (
-            f"EXISTS (SELECT 1 FROM json_each({column}) "
-            f"WHERE value = {self.ph(value_param)})"
-        )
+        return f"EXISTS (SELECT 1 FROM json_each({column}) WHERE value = {self.ph(value_param)})"
 
     # ------------------------------------------------------------------
     # Date/time handling

@@ -52,7 +52,9 @@ class SyncStateMixin:
         if row["last_sync_at"]:
             try:
                 val = row["last_sync_at"]
-                last_sync_at = val if isinstance(val, datetime) else datetime.fromisoformat(str(val))
+                last_sync_at = (
+                    val if isinstance(val, datetime) else datetime.fromisoformat(str(val))
+                )
             except (ValueError, TypeError):
                 logger.warning(
                     "Corrupt last_sync_at in sync_states for %s/%s: %r",
@@ -98,8 +100,15 @@ class SyncStateMixin:
 
         upsert_sql = d.upsert_sql(
             "sync_states",
-            ["brain_id", "source_system", "source_collection", "last_sync_at",
-             "records_imported", "last_record_id", "metadata"],
+            [
+                "brain_id",
+                "source_system",
+                "source_collection",
+                "last_sync_at",
+                "records_imported",
+                "last_record_id",
+                "metadata",
+            ],
             ["brain_id", "source_system", "source_collection"],
             ["last_sync_at", "records_imported", "last_record_id", "metadata"],
         )

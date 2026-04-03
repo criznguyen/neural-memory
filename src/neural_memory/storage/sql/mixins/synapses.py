@@ -49,7 +49,9 @@ class SynapseMixin:
     def _get_brain_id(self) -> str:  # pragma: no cover — provided by host
         raise NotImplementedError
 
-    async def get_neurons_batch(self, neuron_ids: list[str]) -> dict[str, Neuron]:  # pragma: no cover
+    async def get_neurons_batch(
+        self, neuron_ids: list[str]
+    ) -> dict[str, Neuron]:  # pragma: no cover
         raise NotImplementedError
 
     # ========== Synapse CRUD ==========
@@ -467,9 +469,7 @@ class SynapseMixin:
 
         return None
 
-    async def _build_path_result(
-        self, path: list[tuple[str, str]]
-    ) -> list[tuple[Neuron, Synapse]]:
+    async def _build_path_result(self, path: list[tuple[str, str]]) -> list[tuple[Neuron, Synapse]]:
         """Build path result from neuron/synapse IDs using batch fetches."""
         if not path:
             return []

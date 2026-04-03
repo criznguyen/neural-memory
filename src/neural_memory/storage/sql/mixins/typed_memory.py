@@ -30,16 +30,34 @@ logger = logging.getLogger(__name__)
 # --------------------------------------------------------------------------
 
 _TYPED_MEMORY_COLUMNS = [
-    "fiber_id", "brain_id", "memory_type", "priority", "provenance",
-    "expires_at", "project_id", "tags", "metadata", "created_at",
-    "trust_score", "source", "tier",
+    "fiber_id",
+    "brain_id",
+    "memory_type",
+    "priority",
+    "provenance",
+    "expires_at",
+    "project_id",
+    "tags",
+    "metadata",
+    "created_at",
+    "trust_score",
+    "source",
+    "tier",
 ]
 
 _TYPED_MEMORY_CONFLICT = ["brain_id", "fiber_id"]
 
 _TYPED_MEMORY_UPDATE_ON_CONFLICT = [
-    "memory_type", "priority", "provenance", "expires_at", "project_id",
-    "tags", "metadata", "trust_score", "source", "tier",
+    "memory_type",
+    "priority",
+    "provenance",
+    "expires_at",
+    "project_id",
+    "tags",
+    "metadata",
+    "trust_score",
+    "source",
+    "tier",
 ]
 
 
@@ -408,7 +426,9 @@ class TypedMemoryMixin:
                 "fiber_id": str(r["fiber_id"]),
                 "memory_type": str(r["memory_type"]),
                 "expires_at": r["expires_at"],
-                "metadata": json.loads(r["metadata"]) if isinstance(r["metadata"], str) else (r["metadata"] or {}),
+                "metadata": json.loads(r["metadata"])
+                if isinstance(r["metadata"], str)
+                else (r["metadata"] or {}),
                 "frequency": int(r["frequency"]),
                 "conductivity": float(r["conductivity"]),
             }

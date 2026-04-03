@@ -137,9 +137,7 @@ class SQLiteDialect(Dialect):
     def phs(self, count: int, start: int = 1) -> str:
         return ", ".join("?" for _ in range(count))
 
-    def in_clause(
-        self, param_start: int, values: Sequence[Any]
-    ) -> tuple[str, list[Any]]:
+    def in_clause(self, param_start: int, values: Sequence[Any]) -> tuple[str, list[Any]]:
         placeholders = ", ".join("?" for _ in values)
         return f"IN ({placeholders})", list(values)
 
@@ -176,18 +174,14 @@ class SQLiteDialect(Dialect):
 
     # ------------------------------------------------------------------
 
-    def fts_neuron_query(
-        self, term_param: int, brain_id_param: int
-    ) -> tuple[str, str]:
+    def fts_neuron_query(self, term_param: int, brain_id_param: int) -> tuple[str, str]:
         if not self._has_fts:
             raise NotImplementedError("FTS5 not available on this SQLite database")
         from_clause = "neurons n JOIN neurons_fts fts ON n.rowid = fts.rowid"
         where_clause = "fts.neurons_fts MATCH ? AND fts.brain_id = ?"
         return from_clause, where_clause
 
-    def fts_fiber_query(
-        self, term_param: int, brain_id_param: int
-    ) -> tuple[str, str]:
+    def fts_fiber_query(self, term_param: int, brain_id_param: int) -> tuple[str, str]:
         if not self._has_fts:
             raise NotImplementedError("FTS5 not available on this SQLite database")
         from_clause = "fibers f JOIN fibers_fts fts ON f.rowid = fts.rowid"

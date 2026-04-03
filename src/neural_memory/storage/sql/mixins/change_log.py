@@ -152,11 +152,16 @@ class ChangeLogMixin:
             [brain_id, brain_id],
         )
         for nr in neuron_rows:
-            payload_json = json.dumps({
-                "id": nr["id"], "type": nr["type"], "content": nr["content"],
-                "metadata": nr["metadata"], "content_hash": nr["content_hash"],
-                "created_at": str(nr["created_at"]),
-            })
+            payload_json = json.dumps(
+                {
+                    "id": nr["id"],
+                    "type": nr["type"],
+                    "content": nr["content"],
+                    "metadata": nr["metadata"],
+                    "content_hash": nr["content_hash"],
+                    "created_at": str(nr["created_at"]),
+                }
+            )
             await d.execute(
                 f"""INSERT INTO change_log
                    (brain_id, entity_type, entity_id, operation, device_id, changed_at, payload, synced)
@@ -178,13 +183,20 @@ class ChangeLogMixin:
             [brain_id, brain_id],
         )
         for sr in synapse_rows:
-            payload_json = json.dumps({
-                "id": sr["id"], "source_id": sr["source_id"], "target_id": sr["target_id"],
-                "type": sr["type"], "weight": sr["weight"], "direction": sr["direction"],
-                "metadata": sr["metadata"], "reinforced_count": sr["reinforced_count"],
-                "last_activated": str(sr["last_activated"]) if sr["last_activated"] else None,
-                "created_at": str(sr["created_at"]),
-            })
+            payload_json = json.dumps(
+                {
+                    "id": sr["id"],
+                    "source_id": sr["source_id"],
+                    "target_id": sr["target_id"],
+                    "type": sr["type"],
+                    "weight": sr["weight"],
+                    "direction": sr["direction"],
+                    "metadata": sr["metadata"],
+                    "reinforced_count": sr["reinforced_count"],
+                    "last_activated": str(sr["last_activated"]) if sr["last_activated"] else None,
+                    "created_at": str(sr["created_at"]),
+                }
+            )
             await d.execute(
                 f"""INSERT INTO change_log
                    (brain_id, entity_type, entity_id, operation, device_id, changed_at, payload, synced)
@@ -208,19 +220,28 @@ class ChangeLogMixin:
             [brain_id, brain_id],
         )
         for fr in fiber_rows:
-            payload_json = json.dumps({
-                "id": fr["id"], "neuron_ids": fr["neuron_ids"],
-                "synapse_ids": fr["synapse_ids"], "anchor_neuron_id": fr["anchor_neuron_id"],
-                "pathway": fr["pathway"], "conductivity": fr["conductivity"],
-                "last_conducted": str(fr["last_conducted"]) if fr["last_conducted"] else None,
-                "time_start": str(fr["time_start"]) if fr["time_start"] else None,
-                "time_end": str(fr["time_end"]) if fr["time_end"] else None,
-                "coherence": fr["coherence"], "salience": fr["salience"],
-                "frequency": fr["frequency"], "summary": fr["summary"],
-                "auto_tags": fr["auto_tags"], "agent_tags": fr["agent_tags"],
-                "metadata": fr["metadata"], "compression_tier": fr["compression_tier"],
-                "created_at": str(fr["created_at"]),
-            })
+            payload_json = json.dumps(
+                {
+                    "id": fr["id"],
+                    "neuron_ids": fr["neuron_ids"],
+                    "synapse_ids": fr["synapse_ids"],
+                    "anchor_neuron_id": fr["anchor_neuron_id"],
+                    "pathway": fr["pathway"],
+                    "conductivity": fr["conductivity"],
+                    "last_conducted": str(fr["last_conducted"]) if fr["last_conducted"] else None,
+                    "time_start": str(fr["time_start"]) if fr["time_start"] else None,
+                    "time_end": str(fr["time_end"]) if fr["time_end"] else None,
+                    "coherence": fr["coherence"],
+                    "salience": fr["salience"],
+                    "frequency": fr["frequency"],
+                    "summary": fr["summary"],
+                    "auto_tags": fr["auto_tags"],
+                    "agent_tags": fr["agent_tags"],
+                    "metadata": fr["metadata"],
+                    "compression_tier": fr["compression_tier"],
+                    "created_at": str(fr["created_at"]),
+                }
+            )
             await d.execute(
                 f"""INSERT INTO change_log
                    (brain_id, entity_type, entity_id, operation, device_id, changed_at, payload, synced)

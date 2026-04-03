@@ -33,6 +33,7 @@ _MAX_SUGGEST = 100
 # FTS helpers (SQLite FTS5 specific — guarded by ``d.supports_fts``)
 # ---------------------------------------------------------------------------
 
+
 def _build_fts_query(search_term: str) -> str:
     """Build an FTS5 MATCH expression from a user search string.
 
@@ -104,12 +105,23 @@ class NeuronMixin:
 
         # Build column/value lists dynamically for optional embedding
         cols = [
-            "id", "brain_id", "type", "content", "metadata",
-            "content_hash", "created_at", "ephemeral",
+            "id",
+            "brain_id",
+            "type",
+            "content",
+            "metadata",
+            "content_hash",
+            "created_at",
+            "ephemeral",
         ]
         vals: list[Any] = [
-            neuron.id, brain_id, neuron.type.value, neuron.content,
-            meta_json, neuron.content_hash, d.serialize_dt(neuron.created_at),
+            neuron.id,
+            brain_id,
+            neuron.type.value,
+            neuron.content,
+            meta_json,
+            neuron.content_hash,
+            d.serialize_dt(neuron.created_at),
             1 if neuron.ephemeral else 0,
         ]
         if embedding is not None and d.supports_vector:
@@ -287,7 +299,11 @@ class NeuronMixin:
             if content_contains is not None:
                 if d.supports_ilike:
                     # PostgreSQL: use ILIKE for case-insensitive match
-                    safe = content_contains.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                    safe = (
+                        content_contains.replace("\\", "\\\\")
+                        .replace("%", "\\%")
+                        .replace("_", "\\_")
+                    )
                     idx = len(params) + 1
                     query += f" AND content ILIKE {d.ph(idx)} ESCAPE '\\'"
                     params.append(f"%{safe}%")
@@ -343,8 +359,13 @@ class NeuronMixin:
                         content_hash = {d.ph(4)}, embedding = {d.ph(5)}
                     WHERE id = {d.ph(6)} AND brain_id = {d.ph(7)}""",
                 (
-                    neuron.type.value, neuron.content, meta_json,
-                    neuron.content_hash, embedding, neuron.id, brain_id,
+                    neuron.type.value,
+                    neuron.content,
+                    meta_json,
+                    neuron.content_hash,
+                    embedding,
+                    neuron.id,
+                    brain_id,
                 ),
             )
         else:
@@ -354,8 +375,12 @@ class NeuronMixin:
                         metadata = {d.ph(3)}, content_hash = {d.ph(4)}
                     WHERE id = {d.ph(5)} AND brain_id = {d.ph(6)}""",
                 (
-                    neuron.type.value, neuron.content, meta_json,
-                    neuron.content_hash, neuron.id, brain_id,
+                    neuron.type.value,
+                    neuron.content,
+                    meta_json,
+                    neuron.content_hash,
+                    neuron.id,
+                    brain_id,
                 ),
             )
 
@@ -664,8 +689,7 @@ class NeuronMixin:
         d = self._dialect
         brain_id = self._get_brain_id()
         await d.execute(
-            f"UPDATE neurons SET frozen = {d.ph(1)}"
-            f" WHERE id = {d.ph(2)} AND brain_id = {d.ph(3)}",
+            f"UPDATE neurons SET frozen = {d.ph(1)} WHERE id = {d.ph(2)} AND brain_id = {d.ph(3)}",
             (1 if frozen else 0, neuron_id, brain_id),
         )
 
@@ -681,7 +705,9 @@ class NeuronMixin:
         self._neuron_cache.invalidate()
 
     async def update_neurons_ephemeral_batch(
-        self, neuron_ids: list[str], ephemeral: bool,
+        self,
+        neuron_ids: list[str],
+        ephemeral: bool,
     ) -> None:
         """Batch-set ephemeral flag for multiple neurons."""
         if not neuron_ids:
@@ -760,8 +786,7 @@ class NeuronMixin:
         d = self._dialect
         brain_id = self._get_brain_id()
         count = await d.execute_count(
-            f"DELETE FROM neuron_snapshots"
-            f" WHERE neuron_id = {d.ph(1)} AND brain_id = {d.ph(2)}",
+            f"DELETE FROM neuron_snapshots WHERE neuron_id = {d.ph(1)} AND brain_id = {d.ph(2)}",
             (neuron_id, brain_id),
         )
         return count > 0

@@ -42,9 +42,7 @@ class MaturationMixin:
             )
         except Exception:
             # Fiber was deleted (e.g., by consolidation) between read and write.
-            logger.debug(
-                "Skipping maturation save for deleted fiber %s", record.fiber_id
-            )
+            logger.debug("Skipping maturation save for deleted fiber %s", record.fiber_id)
 
     async def get_maturation(self, fiber_id: str) -> MaturationRecord | None:
         """Get a maturation record for a fiber."""
@@ -65,9 +63,13 @@ class MaturationMixin:
             fiber_id=row["fiber_id"],
             brain_id=row["brain_id"],
             stage=MemoryStage(row["stage"]),
-            stage_entered_at=row["stage_entered_at"] if isinstance(row["stage_entered_at"], datetime) else datetime.fromisoformat(row["stage_entered_at"]),
+            stage_entered_at=row["stage_entered_at"]
+            if isinstance(row["stage_entered_at"], datetime)
+            else datetime.fromisoformat(row["stage_entered_at"]),
             rehearsal_count=row["rehearsal_count"],
-            reinforcement_timestamps=tuple(json.loads(row["reinforcement_timestamps"])) if row["reinforcement_timestamps"] else (),
+            reinforcement_timestamps=tuple(json.loads(row["reinforcement_timestamps"]))
+            if row["reinforcement_timestamps"]
+            else (),
         )
 
     async def find_maturations(
@@ -107,9 +109,13 @@ class MaturationMixin:
                     fiber_id=row["fiber_id"],
                     brain_id=row["brain_id"],
                     stage=MemoryStage(row["stage"]),
-                    stage_entered_at=row["stage_entered_at"] if isinstance(row["stage_entered_at"], datetime) else datetime.fromisoformat(row["stage_entered_at"]),
+                    stage_entered_at=row["stage_entered_at"]
+                    if isinstance(row["stage_entered_at"], datetime)
+                    else datetime.fromisoformat(row["stage_entered_at"]),
                     rehearsal_count=row["rehearsal_count"],
-                    reinforcement_timestamps=tuple(json.loads(row["reinforcement_timestamps"])) if row["reinforcement_timestamps"] else (),
+                    reinforcement_timestamps=tuple(json.loads(row["reinforcement_timestamps"]))
+                    if row["reinforcement_timestamps"]
+                    else (),
                 )
             )
 

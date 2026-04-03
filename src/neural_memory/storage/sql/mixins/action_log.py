@@ -123,7 +123,9 @@ class ActionLogMixin:
                     action_context=row["action_context"] or "",
                     tags=tags,
                     fiber_id=row["fiber_id"],
-                    created_at=row["created_at"] if isinstance(row["created_at"], datetime) else datetime.fromisoformat(row["created_at"]),
+                    created_at=row["created_at"]
+                    if isinstance(row["created_at"], datetime)
+                    else datetime.fromisoformat(row["created_at"]),
                 )
             )
 

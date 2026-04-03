@@ -41,9 +41,7 @@ class TestSQLiteDialectPlaceholders:
 class TestSQLiteDialectSQL:
     def test_upsert(self):
         d = SQLiteDialect(db_path="/tmp/test.db")
-        sql = d.upsert_sql(
-            "neurons", ["id", "content"], ["id"], ["content"]
-        )
+        sql = d.upsert_sql("neurons", ["id", "content"], ["id"], ["content"])
         assert "INSERT INTO neurons" in sql
         assert "ON CONFLICT (id)" in sql
         assert "DO UPDATE SET content = excluded.content" in sql
@@ -51,7 +49,8 @@ class TestSQLiteDialectSQL:
     def test_insert_or_ignore(self):
         d = SQLiteDialect(db_path="/tmp/test.db")
         sql = d.insert_or_ignore_sql(
-            "fiber_neurons", ["brain_id", "fiber_id", "neuron_id"],
+            "fiber_neurons",
+            ["brain_id", "fiber_id", "neuron_id"],
             ["brain_id", "fiber_id", "neuron_id"],
         )
         assert "DO NOTHING" in sql
@@ -153,9 +152,7 @@ class TestPostgresDialectPlaceholders:
 class TestPostgresDialectSQL:
     def test_upsert(self):
         d = PostgresDialect()
-        sql = d.upsert_sql(
-            "neurons", ["id", "content"], ["id"], ["content"]
-        )
+        sql = d.upsert_sql("neurons", ["id", "content"], ["id"], ["content"])
         assert "INSERT INTO neurons" in sql
         assert "ON CONFLICT (id)" in sql
         assert "DO UPDATE SET content = EXCLUDED.content" in sql
@@ -199,6 +196,7 @@ class TestPostgresDialectFeatures:
 class TestPostgresDialectDatetime:
     def test_serialize_naive(self):
         from datetime import datetime
+
         d = PostgresDialect()
         dt = datetime(2026, 1, 1, 12, 0, 0)
         result = d.serialize_dt(dt)
@@ -206,6 +204,7 @@ class TestPostgresDialectDatetime:
 
     def test_serialize_aware(self):
         from datetime import datetime
+
         d = PostgresDialect()
         dt = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
         result = d.serialize_dt(dt)

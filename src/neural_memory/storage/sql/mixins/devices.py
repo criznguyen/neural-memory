@@ -113,6 +113,7 @@ class DevicesMixin:
 
 def _row_to_device(row: dict[str, Any]) -> DeviceRecord:
     """Convert a database row dict to a DeviceRecord."""
+
     def _safe_dt(val: object) -> datetime | None:
         if val is None:
             return None

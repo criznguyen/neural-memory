@@ -102,22 +102,32 @@ class BrainOpsMixin:
 
         sql = d.upsert_sql(
             "brains",
-            ["id", "name", "config", "owner_id", "is_public",
-             "shared_with", "created_at", "updated_at"],
+            [
+                "id",
+                "name",
+                "config",
+                "owner_id",
+                "is_public",
+                "shared_with",
+                "created_at",
+                "updated_at",
+            ],
             ["id"],
-            ["name", "config", "owner_id", "is_public",
-             "shared_with", "updated_at"],
+            ["name", "config", "owner_id", "is_public", "shared_with", "updated_at"],
         )
-        await d.execute(sql, [
-            brain.id,
-            brain.name,
-            config_json,
-            brain.owner_id,
-            1 if brain.is_public else 0,
-            shared_json,
-            d.serialize_dt(brain.created_at),
-            d.serialize_dt(now),
-        ])
+        await d.execute(
+            sql,
+            [
+                brain.id,
+                brain.name,
+                config_json,
+                brain.owner_id,
+                1 if brain.is_public else 0,
+                shared_json,
+                d.serialize_dt(brain.created_at),
+                d.serialize_dt(now),
+            ],
+        )
 
     # ================================================================
     # get_brain / find_brain_by_name
@@ -211,9 +221,7 @@ class BrainOpsMixin:
             await self._import_synapses(snapshot.synapses)
             await self._import_fibers(snapshot.fibers)
             await self._import_projects(snapshot.metadata.get("projects", []))
-            await self._import_typed_memories(
-                snapshot.metadata.get("typed_memories", [])
-            )
+            await self._import_typed_memories(snapshot.metadata.get("typed_memories", []))
         finally:
             if old_brain_id is not None:
                 self.set_brain(old_brain_id)
@@ -288,8 +296,12 @@ class BrainOpsMixin:
         )
         today_fibers_count = int(today_row["cnt"]) if today_row else 0
 
-        oldest_dt = d.normalize_dt(fiber_row["oldest"]) if fiber_row and fiber_row["oldest"] else None
-        newest_dt = d.normalize_dt(fiber_row["newest"]) if fiber_row and fiber_row["newest"] else None
+        oldest_dt = (
+            d.normalize_dt(fiber_row["oldest"]) if fiber_row and fiber_row["oldest"] else None
+        )
+        newest_dt = (
+            d.normalize_dt(fiber_row["newest"]) if fiber_row and fiber_row["newest"] else None
+        )
         oldest_memory = oldest_dt.isoformat() if oldest_dt else None
         newest_memory = newest_dt.isoformat() if newest_dt else None
 
@@ -384,8 +396,14 @@ class BrainOpsMixin:
         )
         state_sql = d.insert_or_ignore_sql(
             "neuron_states",
-            ["neuron_id", "brain_id", "firing_threshold",
-             "refractory_period_ms", "homeostatic_target", "created_at"],
+            [
+                "neuron_id",
+                "brain_id",
+                "firing_threshold",
+                "refractory_period_ms",
+                "homeostatic_target",
+                "created_at",
+            ],
             ["brain_id", "neuron_id"],
         )
 
@@ -397,23 +415,29 @@ class BrainOpsMixin:
                 metadata=n_data.get("metadata", {}),
                 created_at=datetime.fromisoformat(n_data["created_at"]),
             )
-            await d.execute(upsert_sql, [
-                neuron.id,
-                brain_id,
-                neuron.type.value,
-                neuron.content,
-                json.dumps(neuron.metadata),
-                neuron.content_hash,
-                d.serialize_dt(neuron.created_at),
-            ])
-            await d.execute(state_sql, [
-                neuron.id,
-                brain_id,
-                0.3,
-                500.0,
-                0.5,
-                d.serialize_dt(utcnow()),
-            ])
+            await d.execute(
+                upsert_sql,
+                [
+                    neuron.id,
+                    brain_id,
+                    neuron.type.value,
+                    neuron.content,
+                    json.dumps(neuron.metadata),
+                    neuron.content_hash,
+                    d.serialize_dt(neuron.created_at),
+                ],
+            )
+            await d.execute(
+                state_sql,
+                [
+                    neuron.id,
+                    brain_id,
+                    0.3,
+                    500.0,
+                    0.5,
+                    d.serialize_dt(utcnow()),
+                ],
+            )
 
     async def _import_synapses(self, synapses_data: list[dict[str, Any]]) -> None:
         d = self._dialect
@@ -421,8 +445,19 @@ class BrainOpsMixin:
 
         upsert_sql = d.upsert_sql(
             "synapses",
-            ["id", "brain_id", "source_id", "target_id", "type", "weight",
-             "direction", "metadata", "reinforced_count", "last_activated", "created_at"],
+            [
+                "id",
+                "brain_id",
+                "source_id",
+                "target_id",
+                "type",
+                "weight",
+                "direction",
+                "metadata",
+                "reinforced_count",
+                "last_activated",
+                "created_at",
+            ],
             ["brain_id", "id"],
             ["type", "weight", "direction", "metadata", "reinforced_count"],
         )
@@ -439,19 +474,22 @@ class BrainOpsMixin:
                 reinforced_count=s_data.get("reinforced_count", 0),
                 created_at=datetime.fromisoformat(s_data["created_at"]),
             )
-            await d.execute(upsert_sql, [
-                synapse.id,
-                brain_id,
-                synapse.source_id,
-                synapse.target_id,
-                synapse.type.value,
-                synapse.weight,
-                synapse.direction.value,
-                json.dumps(synapse.metadata),
-                synapse.reinforced_count,
-                d.serialize_dt(synapse.last_activated),
-                d.serialize_dt(synapse.created_at),
-            ])
+            await d.execute(
+                upsert_sql,
+                [
+                    synapse.id,
+                    brain_id,
+                    synapse.source_id,
+                    synapse.target_id,
+                    synapse.type.value,
+                    synapse.weight,
+                    synapse.direction.value,
+                    json.dumps(synapse.metadata),
+                    synapse.reinforced_count,
+                    d.serialize_dt(synapse.last_activated),
+                    d.serialize_dt(synapse.created_at),
+                ],
+            )
 
     async def _import_fibers(self, fibers_data: list[dict[str, Any]]) -> None:
         d = self._dialect
@@ -459,16 +497,49 @@ class BrainOpsMixin:
 
         upsert_sql = d.upsert_sql(
             "fibers",
-            ["id", "brain_id", "neuron_ids", "synapse_ids", "anchor_neuron_id",
-             "pathway", "conductivity", "last_conducted", "time_start", "time_end",
-             "coherence", "salience", "frequency", "summary", "tags",
-             "auto_tags", "agent_tags", "metadata", "compression_tier",
-             "pinned", "created_at"],
+            [
+                "id",
+                "brain_id",
+                "neuron_ids",
+                "synapse_ids",
+                "anchor_neuron_id",
+                "pathway",
+                "conductivity",
+                "last_conducted",
+                "time_start",
+                "time_end",
+                "coherence",
+                "salience",
+                "frequency",
+                "summary",
+                "tags",
+                "auto_tags",
+                "agent_tags",
+                "metadata",
+                "compression_tier",
+                "pinned",
+                "created_at",
+            ],
             ["brain_id", "id"],
-            ["neuron_ids", "synapse_ids", "anchor_neuron_id", "pathway",
-             "conductivity", "last_conducted", "time_start", "time_end",
-             "coherence", "salience", "frequency", "summary", "tags",
-             "auto_tags", "agent_tags", "metadata", "compression_tier"],
+            [
+                "neuron_ids",
+                "synapse_ids",
+                "anchor_neuron_id",
+                "pathway",
+                "conductivity",
+                "last_conducted",
+                "time_start",
+                "time_end",
+                "coherence",
+                "salience",
+                "frequency",
+                "summary",
+                "tags",
+                "auto_tags",
+                "agent_tags",
+                "metadata",
+                "compression_tier",
+            ],
         )
         junction_sql = d.insert_or_ignore_sql(
             "fiber_neurons",
@@ -493,9 +564,7 @@ class BrainOpsMixin:
                     else None
                 ),
                 time_end=(
-                    datetime.fromisoformat(f_data["time_end"])
-                    if f_data.get("time_end")
-                    else None
+                    datetime.fromisoformat(f_data["time_end"]) if f_data.get("time_end") else None
                 ),
                 coherence=f_data.get("coherence", 0.0),
                 salience=f_data.get("salience", 0.0),
@@ -508,29 +577,32 @@ class BrainOpsMixin:
             )
             all_tags = sorted(fiber.auto_tags | fiber.agent_tags)
 
-            await d.execute(upsert_sql, [
-                fiber.id,
-                brain_id,
-                json.dumps(sorted(fiber.neuron_ids)),
-                json.dumps(sorted(fiber.synapse_ids)),
-                fiber.anchor_neuron_id,
-                json.dumps(list(fiber.pathway)),
-                fiber.conductivity,
-                d.serialize_dt(fiber.last_conducted),
-                d.serialize_dt(fiber.time_start),
-                d.serialize_dt(fiber.time_end),
-                fiber.coherence,
-                fiber.salience,
-                fiber.frequency,
-                fiber.summary,
-                json.dumps(all_tags),
-                json.dumps(sorted(fiber.auto_tags)),
-                json.dumps(sorted(fiber.agent_tags)),
-                json.dumps(fiber.metadata),
-                fiber.compression_tier,
-                1 if fiber.pinned else 0,
-                d.serialize_dt(fiber.created_at),
-            ])
+            await d.execute(
+                upsert_sql,
+                [
+                    fiber.id,
+                    brain_id,
+                    json.dumps(sorted(fiber.neuron_ids)),
+                    json.dumps(sorted(fiber.synapse_ids)),
+                    fiber.anchor_neuron_id,
+                    json.dumps(list(fiber.pathway)),
+                    fiber.conductivity,
+                    d.serialize_dt(fiber.last_conducted),
+                    d.serialize_dt(fiber.time_start),
+                    d.serialize_dt(fiber.time_end),
+                    fiber.coherence,
+                    fiber.salience,
+                    fiber.frequency,
+                    fiber.summary,
+                    json.dumps(all_tags),
+                    json.dumps(sorted(fiber.auto_tags)),
+                    json.dumps(sorted(fiber.agent_tags)),
+                    json.dumps(fiber.metadata),
+                    fiber.compression_tier,
+                    1 if fiber.pinned else 0,
+                    d.serialize_dt(fiber.created_at),
+                ],
+            )
 
             if fiber.neuron_ids:
                 await d.execute_many(
@@ -546,9 +618,7 @@ class BrainOpsMixin:
                 description=p_data.get("description", ""),
                 start_date=datetime.fromisoformat(p_data["start_date"]),
                 end_date=(
-                    datetime.fromisoformat(p_data["end_date"])
-                    if p_data.get("end_date")
-                    else None
+                    datetime.fromisoformat(p_data["end_date"]) if p_data.get("end_date") else None
                 ),
                 tags=frozenset(p_data.get("tags", [])),
                 priority=p_data.get("priority", 1.0),
@@ -558,7 +628,8 @@ class BrainOpsMixin:
             await self.add_project(project)
 
     async def _import_typed_memories(
-        self, typed_memories_data: list[dict[str, Any]],
+        self,
+        typed_memories_data: list[dict[str, Any]],
     ) -> None:
         for tm_data in typed_memories_data:
             prov_data = tm_data.get("provenance", {})
@@ -613,14 +684,16 @@ async def _export_neurons(d: Dialect, brain_id: str) -> list[dict[str, Any]]:
     neurons: list[dict[str, Any]] = []
     for r in rows:
         created = d.normalize_dt(r["created_at"])
-        neurons.append({
-            "id": str(r["id"]),
-            "type": str(r["type"]),
-            "content": str(r["content"]),
-            "metadata": _parse_json(r["metadata"]) or {},
-            "content_hash": int(r.get("content_hash") or 0),
-            "created_at": created.isoformat() if created else "",
-        })
+        neurons.append(
+            {
+                "id": str(r["id"]),
+                "type": str(r["type"]),
+                "content": str(r["content"]),
+                "metadata": _parse_json(r["metadata"]) or {},
+                "content_hash": int(r.get("content_hash") or 0),
+                "created_at": created.isoformat() if created else "",
+            }
+        )
     return neurons
 
 
@@ -637,18 +710,20 @@ async def _export_synapses(d: Dialect, brain_id: str) -> list[dict[str, Any]]:
     for r in rows:
         la = d.normalize_dt(r.get("last_activated"))
         created = d.normalize_dt(r["created_at"])
-        synapses.append({
-            "id": str(r["id"]),
-            "source_id": str(r["source_id"]),
-            "target_id": str(r["target_id"]),
-            "type": str(r["type"]),
-            "weight": float(r["weight"]),
-            "direction": str(r.get("direction", "uni")),
-            "metadata": _parse_json(r["metadata"]) or {},
-            "reinforced_count": int(r.get("reinforced_count", 0)),
-            "last_activated": la.isoformat() if la else None,
-            "created_at": created.isoformat() if created else "",
-        })
+        synapses.append(
+            {
+                "id": str(r["id"]),
+                "source_id": str(r["source_id"]),
+                "target_id": str(r["target_id"]),
+                "type": str(r["type"]),
+                "weight": float(r["weight"]),
+                "direction": str(r.get("direction", "uni")),
+                "metadata": _parse_json(r["metadata"]) or {},
+                "reinforced_count": int(r.get("reinforced_count", 0)),
+                "last_activated": la.isoformat() if la else None,
+                "created_at": created.isoformat() if created else "",
+            }
+        )
     return synapses
 
 
@@ -666,22 +741,24 @@ async def _export_fibers(d: Dialect, brain_id: str) -> list[dict[str, Any]]:
     fibers: list[dict[str, Any]] = []
     for r in rows:
         created = d.normalize_dt(r["created_at"])
-        fibers.append({
-            "id": str(r["id"]),
-            "neuron_ids": _parse_json(r["neuron_ids"]) or [],
-            "synapse_ids": _parse_json(r["synapse_ids"]) or [],
-            "anchor_neuron_id": str(r["anchor_neuron_id"]),
-            "pathway": _parse_json(r.get("pathway")) or [],
-            "time_start": _dt_iso(d, r.get("time_start")),
-            "time_end": _dt_iso(d, r.get("time_end")),
-            "coherence": float(r.get("coherence", 0.0)),
-            "salience": float(r.get("salience", 0.0)),
-            "frequency": int(r.get("frequency", 0)),
-            "summary": r.get("summary"),
-            "tags": _parse_json(r["tags"]) or [],
-            "metadata": _parse_json(r["metadata"]) or {},
-            "created_at": created.isoformat() if created else "",
-        })
+        fibers.append(
+            {
+                "id": str(r["id"]),
+                "neuron_ids": _parse_json(r["neuron_ids"]) or [],
+                "synapse_ids": _parse_json(r["synapse_ids"]) or [],
+                "anchor_neuron_id": str(r["anchor_neuron_id"]),
+                "pathway": _parse_json(r.get("pathway")) or [],
+                "time_start": _dt_iso(d, r.get("time_start")),
+                "time_end": _dt_iso(d, r.get("time_end")),
+                "coherence": float(r.get("coherence", 0.0)),
+                "salience": float(r.get("salience", 0.0)),
+                "frequency": int(r.get("frequency", 0)),
+                "summary": r.get("summary"),
+                "tags": _parse_json(r["tags"]) or [],
+                "metadata": _parse_json(r["metadata"]) or {},
+                "created_at": created.isoformat() if created else "",
+            }
+        )
     return fibers
 
 
@@ -697,17 +774,19 @@ async def _export_typed_memories(d: Dialect, brain_id: str) -> list[dict[str, An
     typed_memories: list[dict[str, Any]] = []
     for r in rows:
         created = d.normalize_dt(r["created_at"])
-        typed_memories.append({
-            "fiber_id": str(r["fiber_id"]),
-            "memory_type": str(r["memory_type"]),
-            "priority": str(r["priority"]),
-            "provenance": _parse_json(r["provenance"]) or {},
-            "expires_at": _dt_iso(d, r.get("expires_at")),
-            "project_id": r.get("project_id"),
-            "tags": _parse_json(r["tags"]) or [],
-            "metadata": _parse_json(r["metadata"]) or {},
-            "created_at": created.isoformat() if created else "",
-        })
+        typed_memories.append(
+            {
+                "fiber_id": str(r["fiber_id"]),
+                "memory_type": str(r["memory_type"]),
+                "priority": str(r["priority"]),
+                "provenance": _parse_json(r["provenance"]) or {},
+                "expires_at": _dt_iso(d, r.get("expires_at")),
+                "project_id": r.get("project_id"),
+                "tags": _parse_json(r["tags"]) or [],
+                "metadata": _parse_json(r["metadata"]) or {},
+                "created_at": created.isoformat() if created else "",
+            }
+        )
     return typed_memories
 
 
@@ -721,15 +800,17 @@ async def _export_projects(d: Dialect, brain_id: str) -> list[dict[str, Any]]:
         created = d.normalize_dt(r["created_at"])
         start = d.normalize_dt(r.get("start_date"))
         end = d.normalize_dt(r.get("end_date"))
-        projects.append({
-            "id": str(r["id"]),
-            "name": str(r["name"]),
-            "description": str(r.get("description", "")),
-            "start_date": start.isoformat() if start else "",
-            "end_date": end.isoformat() if end else None,
-            "tags": _parse_json(r["tags"]) or [],
-            "priority": float(r.get("priority", 1.0)),
-            "metadata": _parse_json(r["metadata"]) or {},
-            "created_at": created.isoformat() if created else "",
-        })
+        projects.append(
+            {
+                "id": str(r["id"]),
+                "name": str(r["name"]),
+                "description": str(r.get("description", "")),
+                "start_date": start.isoformat() if start else "",
+                "end_date": end.isoformat() if end else None,
+                "tags": _parse_json(r["tags"]) or [],
+                "priority": float(r.get("priority", 1.0)),
+                "metadata": _parse_json(r["metadata"]) or {},
+                "created_at": created.isoformat() if created else "",
+            }
+        )
     return projects

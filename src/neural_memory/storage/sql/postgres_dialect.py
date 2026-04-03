@@ -80,14 +80,15 @@ class PostgresDialect(Dialect):
 
         # Check pgvector extension
         async with self._pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT 1 FROM pg_extension WHERE extname = 'vector'"
-            )
+            row = await conn.fetchrow("SELECT 1 FROM pg_extension WHERE extname = 'vector'")
             self._has_vector = row is not None
 
         logger.info(
             "PostgreSQL dialect initialized: %s:%d/%s (vector=%s)",
-            self._host, self._port, self._database, self._has_vector,
+            self._host,
+            self._port,
+            self._database,
+            self._has_vector,
         )
 
     async def close(self) -> None:
@@ -160,9 +161,7 @@ class PostgresDialect(Dialect):
     def phs(self, count: int, start: int = 1) -> str:
         return ", ".join(f"${i}" for i in range(start, start + count))
 
-    def in_clause(
-        self, param_start: int, values: Sequence[Any]
-    ) -> tuple[str, list[Any]]:
+    def in_clause(self, param_start: int, values: Sequence[Any]) -> tuple[str, list[Any]]:
         # PostgreSQL uses ANY with an array parameter
         return f"= ANY(${param_start}::text[])", [list(values)]
 
@@ -199,9 +198,7 @@ class PostgresDialect(Dialect):
 
     # ------------------------------------------------------------------
 
-    def fts_neuron_query(
-        self, term_param: int, brain_id_param: int
-    ) -> tuple[str, str]:
+    def fts_neuron_query(self, term_param: int, brain_id_param: int) -> tuple[str, str]:
         from_clause = "neurons n"
         where_clause = (
             f"n.content_tsv @@ plainto_tsquery('english', ${term_param}) "
@@ -209,9 +206,7 @@ class PostgresDialect(Dialect):
         )
         return from_clause, where_clause
 
-    def fts_fiber_query(
-        self, term_param: int, brain_id_param: int
-    ) -> tuple[str, str]:
+    def fts_fiber_query(self, term_param: int, brain_id_param: int) -> tuple[str, str]:
         from_clause = "fibers f"
         where_clause = (
             f"f.summary_tsv @@ plainto_tsquery('english', ${term_param}) "
