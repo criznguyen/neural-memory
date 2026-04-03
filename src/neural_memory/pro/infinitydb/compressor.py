@@ -71,10 +71,10 @@ class VectorCompressor:
             raise ValueError(msg)
 
         if target_tier == CompressionTier.ACTIVE:
-            return vector.astype(np.float32).tobytes()
+            return bytes(vector.astype(np.float32).tobytes())
 
         if target_tier == CompressionTier.WARM:
-            return vector.astype(np.float16).tobytes()
+            return bytes(vector.astype(np.float16).tobytes())
 
         if target_tier == CompressionTier.COOL:
             return self._quantize_int8(vector)
@@ -132,15 +132,15 @@ class VectorCompressor:
 
         if val_range < 1e-10:
             # Constant vector — store as all zeros
-            header = np.array([vmin, vmax], dtype=np.float32).tobytes()
-            return header + np.zeros(self._dimensions, dtype=np.int8).tobytes()
+            header = bytes(np.array([vmin, vmax], dtype=np.float32).tobytes())
+            return header + bytes(np.zeros(self._dimensions, dtype=np.int8).tobytes())
 
         # Scale to [-127, 127]
         scaled = ((vector - vmin) / val_range * 254 - 127).clip(-127, 127)
         quantized = scaled.astype(np.int8)
 
-        header = np.array([vmin, vmax], dtype=np.float32).tobytes()
-        return header + quantized.tobytes()
+        header = bytes(np.array([vmin, vmax], dtype=np.float32).tobytes())
+        return header + bytes(quantized.tobytes())
 
     def _dequantize_int8(self, data: bytes) -> NDArray[np.float32]:
         """Restore float32 from int8 quantized data."""
@@ -166,7 +166,7 @@ class VectorCompressor:
         pad_len = (8 - (self._dimensions % 8)) % 8
         if pad_len:
             bits = np.concatenate([bits, np.zeros(pad_len, dtype=np.uint8)])
-        return np.packbits(bits).tobytes()
+        return bytes(np.packbits(bits).tobytes())
 
     def _dequantize_binary(self, data: bytes) -> NDArray[np.float32]:
         """Restore approximate float32 from binary hash.
