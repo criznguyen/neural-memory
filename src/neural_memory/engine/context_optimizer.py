@@ -48,6 +48,7 @@ class ContextItem:
     token_count: int
     truncated: bool = False
     fidelity_level: str = "full"
+    tier: str = "warm"
 
 
 @dataclass(frozen=True)
@@ -352,6 +353,7 @@ async def optimize_context(
                 content=content,
                 score=score,
                 token_count=_estimate_tokens(content),
+                tier=fiber_tier,
             )
         )
 

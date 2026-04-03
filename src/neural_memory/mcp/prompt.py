@@ -442,17 +442,14 @@ each session starts fresh, so without explicit saves ALL discoveries are lost.
 
 | Trigger | Action |
 |---------|--------|
-| New session starts | nmem_recall("current project context") |
+| New session starts | nmem_recap(level=1) then nmem_recall("<project> context") |
 | User references past event/decision | nmem_recall("<that topic>") |
 | Task involves tech/pattern discussed before | nmem_recall("<project> <tech>") |
 | Purely new, self-contained question | Skip recall |
 
-Query tips: Be specific ("auth bug fix March 2026"), prefix with project name, \
-avoid vague queries ("stuff", "what happened").
+Query tips: Be specific ("auth bug fix March 2026"), prefix with project name.
 
 ## WHEN TO SAVE (after completing work)
-
-After each task, check: did I just...
 
 | Signal | Type | Priority |
 |--------|------|----------|
@@ -464,38 +461,21 @@ After each task, check: did I just...
 | Find a reusable fact | fact | 5 |
 | Receive explicit instruction | instruction | 8 |
 
-Priority scale: 9-10 critical (security, data loss), 7-8 important (decisions, preferences), \
-5-6 normal (patterns, facts), 1-4 minor.
-
-## EPHEMERAL MEMORIES
-
-For scratch notes, debugging context, or temporary reasoning that should NOT persist:
-`nmem_remember(content="...", ephemeral=true)` — auto-expires after 24h, never synced, \
-excluded from consolidation. Use `nmem_recall(permanent_only=true)` to filter them out.
-
-## DO NOT SAVE (as permanent)
-
-- Routine file reads/writes — use `ephemeral=true` or skip entirely
-- Things already in code or git history (derivable)
-- Temporary debugging steps — use `ephemeral=true`
-- Content already stored (check with nmem_recall first)
-
 ## CONTENT QUALITY
 
-1. Max 1-3 sentences. Never dump file structures or full implementation details.
-2. Use causal language: "Chose X over Y because Z", "Root cause was X, fixed by Y".
-3. Always include project name + topic in tags (lowercase).
+1. Max 1-3 sentences. Use causal language: "Chose X over Y because Z".
+2. Always include project name + topic in tags (lowercase).
+3. Ephemeral: `nmem_remember(content="...", ephemeral=true)` for scratch notes (24h TTL).
+4. Don't save: routine file reads, derivable info, duplicates.
 
 ## SESSION END
 
-Call nmem_auto(action="process", text="<brief session summary>") to capture remaining context.
+Call nmem_auto(action="process", text="<brief session summary>").
 
 ## COMPACT MODE
 
-All tools support `compact=true` to reduce response tokens by 60-80%. Use it for list queries \
-when you don't need full details. Use `token_budget=N` to cap response size. \
-Full details always available via nmem_show(memory_id). Responses with >20 list items are \
-auto-compacted.\
+All tools support `compact=true` (60-80% fewer tokens) and `token_budget=N`. \
+Use nmem_show(memory_id) for full details.\
 """
 
 

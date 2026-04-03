@@ -841,7 +841,10 @@ class RecallHandler:
             non_ghost = [item for item in plan.items if item.fidelity_level != "ghost"]
             ghost_items = [item for item in plan.items if item.fidelity_level == "ghost"]
 
-            context_parts = [f"- {item.content}" for item in non_ghost]
+            context_parts = [
+                f"- [{item.tier.upper()}] {item.content}" if item.tier == "hot" else f"- {item.content}"
+                for item in non_ghost
+            ]
             context_text = "\n".join(context_parts) if context_parts else ""
 
             # Append ghost section if enabled and ghosts exist
@@ -871,10 +874,15 @@ class RecallHandler:
 
         await self._record_tool_action("context")
 
+        # Count HOT memories in final output
+        hot_count = sum(1 for item in plan.items if item.tier == "hot")
+
         response: dict[str, Any] = {
             "context": context_text,
             "count": len(plan.items),
             "tokens_used": plan.total_tokens,
+            "token_budget": max_tokens,
+            "hot_memories_injected": hot_count,
         }
 
         if plan.dropped_count > 0:

@@ -88,6 +88,15 @@ class SynapseType(StrEnum):
     # Decision intelligence — evolution tracking
     EVOLVES_FROM = "evolves_from"  # New decision -> Prior decision (same domain)
 
+    # Code-semantic relationships
+    IMPORTS = "imports"  # Module -> Module (import dependency)
+    CALLS = "calls"  # Function -> Function (invocation)
+    DEPENDS_ON = "depends_on"  # Component -> Dependency (runtime/build)
+    INHERITS = "inherits"  # Class -> Parent class (inheritance chain)
+    IMPLEMENTS = "implements"  # Class -> Interface/Protocol
+    DEFINED_IN = "defined_in"  # Symbol -> Module/File (definition location)
+    RAISES = "raises"  # Function -> Exception (error contract)
+
 
 class Direction(StrEnum):
     """Direction of synapse connection."""
@@ -118,6 +127,11 @@ INVERSE_TYPES: dict[SynapseType, SynapseType] = {
     # Note: VERIFIED_BY and FALSIFIED_BY are NOT inverses — they are
     # alternative truth-value edges on the same direction (Prediction → Observation).
     # SUPERSEDES and DERIVED_FROM are intentionally unidirectional with no inverse.
+    # Code-semantic inverses
+    SynapseType.IMPORTS: SynapseType.DEPENDS_ON,  # A imports B ↔ B is depended on by A
+    SynapseType.DEPENDS_ON: SynapseType.IMPORTS,
+    SynapseType.INHERITS: SynapseType.IS_A,  # A inherits B ↔ B is a parent of A
+    SynapseType.IS_A: SynapseType.INHERITS,
 }
 
 
