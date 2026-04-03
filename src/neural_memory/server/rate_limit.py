@@ -41,7 +41,7 @@ def _get_window() -> int:
 
 def _client_ip(request: Request) -> str:
     """Return best-effort client IP, considering X-Forwarded-For behind a proxy."""
-    forwarded = request.headers.get("X-Forwarded-For", "").strip()
+    forwarded: str = str(request.headers.get("X-Forwarded-For", "")).strip()
     if forwarded:
         # Take the leftmost (originating) IP
         return forwarded.split(",")[0].strip()
@@ -54,6 +54,7 @@ def _client_ip(request: Request) -> str:
 _Base: Any = None
 try:
     from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+
     _Base = BaseHTTPMiddleware
 except ImportError:
     pass
@@ -77,9 +78,7 @@ class RateLimitMiddleware(_Base):  # type: ignore[misc]
         if limit == 0:
             logger.info("Rate limiting is DISABLED (NEURAL_MEMORY_RATE_LIMIT=0).")
         else:
-            logger.info(
-                "Rate limiting enabled: %d requests per %ds per IP.", limit, window
-            )
+            logger.info("Rate limiting enabled: %d requests per %ds per IP.", limit, window)
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         limit = _get_limit()

@@ -47,12 +47,12 @@ def _is_public_path(path: str) -> bool:
 def _extract_key(request: Request) -> str | None:
     """Extract API key from Authorization or X-API-Key header."""
     # X-API-Key header (preferred for programmatic access)
-    key = request.headers.get("X-API-Key", "").strip()
+    key: str = str(request.headers.get("X-API-Key", "")).strip()
     if key:
         return key
 
     # Authorization: Bearer <key>
-    auth = request.headers.get("Authorization", "").strip()
+    auth: str = str(request.headers.get("Authorization", "")).strip()
     if auth.lower().startswith("bearer "):
         return auth[7:].strip()
 
@@ -63,6 +63,7 @@ def _extract_key(request: Request) -> str | None:
 _Base: Any = None
 try:
     from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+
     _Base = BaseHTTPMiddleware
 except ImportError:
     pass
@@ -113,7 +114,9 @@ class APIKeyMiddleware(_Base):  # type: ignore[misc]
 
         # Constant-time comparison to prevent timing attacks
         if not hmac.compare_digest(configured_key, provided_key):
-            logger.warning("Invalid API key attempt from %s", request.client and request.client.host)
+            logger.warning(
+                "Invalid API key attempt from %s", request.client and request.client.host
+            )
             return JSONResponse(
                 status_code=403,
                 content={"detail": "Invalid API key."},
