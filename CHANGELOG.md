@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.29.0] — 2026-04-04
+
+### Added
+
+- **A7 Recall Intelligence**: Causal synapse roles (CAUSED_BY, RESOLVED_BY, EVIDENCE_FOR/AGAINST, etc.) with spreading activation integration. Fixes auto-supersede errors — storing a fix creates RESOLVED_BY synapse and demotes error activation by >=50%. Outcome learning tracks prediction accuracy.
+- **A8 Agent Intelligence — Phase 1 (Precision Recall)**: Context optimizer sharpens recall by injecting session topic context, deduplicating fiber results, and capping token budgets. Retrieval penalizes stale version references (-20%).
+- **A8 Phase 2 (Proactive Context)**: Surface-based topic injection at session start — up to 9 topic memories from 3 clusters. Habit-aware context with time-of-day and day-of-week patterns.
+- **A8 Phase 3 (Auto-Save Intelligence)**: Quality scoring (0-10) for every nmem_remember — specificity, structure, brevity bonuses with wall-of-text penalty. Auto-classification confidence scoring. Enhanced importance scoring with security keywords, CVE detection, error traces.
+- **A8 Phase 4 (Aggressive Consolidation)**: SimHash semantic merge (content-similar fibers merged via Union-Find). Stale version detection (>=2 major behind flagged). Access-based demotion (30d cold, 90d prune candidate, pinned exempt). Summary fibers for 5+ merged groups (1.1x retrieval bonus). Surface regeneration after structural changes.
+- **Code-semantic encoding**: 7 new synapse types (IMPORTS, CALLS, DEPENDS_ON, INHERITS, IMPLEMENTS, DEFINED_IN, RAISES). Compound identifier keyword extraction (PascalCase, camelCase, snake_case splitting).
+
+### Improved
+
+- **Agent instructions rewritten**: SYSTEM_PROMPT, COMPACT_PROMPT, MCP_INSTRUCTIONS, and SKILL.md restructured for "read less, understand more" — scannable sections, A7/A8 smart behaviors documented, tool decision matrix.
+- **Tighter regex patterns**: `_ERROR_TRACE_RE` requires `Error:` or `Traceback (most recent` pattern. `_VERSION_PATTERN` requires `v` prefix to avoid IP/date false positives. `_FILE_PATH_PATTERN` excludes abbreviations.
+
+### Tests
+
+- ~100 new tests: causal recall (22), precision recall (15), proactive context (12), auto-save intelligence (17), aggressive consolidation (23), code-semantic encoding (15+)
+
 ## [4.28.0] — 2026-04-03
 
 ### Fixed
