@@ -304,6 +304,10 @@ module = "neural_memory.engine.reranker"
 warn_unused_ignores = false
 
 [[tool.mypy.overrides]]
+module = "neural_memory.pro.infinitydb.vector_store"
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
 module = "neural_memory.engine.doc_extractor"
 disallow_untyped_calls = false
 
