@@ -19,7 +19,6 @@ from neural_memory.storage.memory_store import InMemoryStorage
 from neural_memory.utils.simhash import simhash
 from neural_memory.utils.timeutils import utcnow
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -152,12 +151,8 @@ class TestMMRDiversity:
         for i in range(9):
             await _add_neuron(storage, f"n{i}", f"concept {i}")
 
-        await _add_fiber(
-            storage, "f1", {"n0", "n1", "n2", "n3", "n4"}, "n0", salience=0.8
-        )
-        await _add_fiber(
-            storage, "f2", {"n0", "n5", "n6", "n7", "n8"}, "n0", salience=0.75
-        )
+        await _add_fiber(storage, "f1", {"n0", "n1", "n2", "n3", "n4"}, "n0", salience=0.8)
+        await _add_fiber(storage, "f2", {"n0", "n5", "n6", "n7", "n8"}, "n0", salience=0.75)
 
         activations = {f"n{i}": _activation(f"n{i}", 0.7) for i in range(9)}
 
@@ -174,8 +169,8 @@ class TestMMRDiversity:
             await _add_neuron(storage, f"n{i}", f"concept {i}")
 
         for i in range(15):
-            nids = {f"n{i*4+j}" for j in range(4)}
-            anchor = f"n{i*4}"
+            nids = {f"n{i * 4 + j}" for j in range(4)}
+            anchor = f"n{i * 4}"
             await _add_fiber(storage, f"f{i}", nids, anchor, salience=0.5)
 
         activations = {f"n{i}": _activation(f"n{i}", 0.5) for i in range(60)}
@@ -236,19 +231,19 @@ class TestTopicAffinity:
             await _add_neuron(storage, f"n{i}", f"concept {i}")
 
         await _add_fiber(
-            storage, "f1", {"n0", "n1", "n2"}, "n0", salience=0.5,
+            storage,
+            "f1",
+            {"n0", "n1", "n2"},
+            "n0",
+            salience=0.5,
             metadata={"tags": ["auth"]},
         )
 
         activations = {f"n{i}": _activation(f"n{i}", 0.7) for i in range(3)}
 
         pipeline = ReflexPipeline(storage, config)
-        fibers_with = await pipeline._find_matching_fibers(
-            activations, session_topics={"auth"}
-        )
-        fibers_without = await pipeline._find_matching_fibers(
-            activations, session_topics=set()
-        )
+        fibers_with = await pipeline._find_matching_fibers(activations, session_topics={"auth"})
+        fibers_without = await pipeline._find_matching_fibers(activations, session_topics=set())
 
         # Both return the fiber, but internal scores differ
         assert len(fibers_with) == 1
@@ -267,15 +262,14 @@ class TestTopicAffinity:
             fiber_id="f_auto",
         )
         from dataclasses import replace
+
         fiber = replace(fiber, salience=0.5, conductivity=1.0)
         await storage.add_fiber(fiber)
 
         activations = {f"n{i}": _activation(f"n{i}", 0.7) for i in range(3)}
 
         pipeline = ReflexPipeline(storage, config)
-        fibers = await pipeline._find_matching_fibers(
-            activations, session_topics={"retrieval"}
-        )
+        fibers = await pipeline._find_matching_fibers(activations, session_topics={"retrieval"})
 
         assert len(fibers) == 1
         assert fibers[0].id == "f_auto"
@@ -376,13 +370,19 @@ class TestRecentAccessBoost:
         now = utcnow()
         # Lower salience but recently accessed
         await _add_fiber(
-            storage, "f_recent", {"n0", "n1", "n2"}, "n0",
+            storage,
+            "f_recent",
+            {"n0", "n1", "n2"},
+            "n0",
             salience=0.4,
             last_conducted=now - timedelta(days=1),
         )
         # Higher salience but old access
         await _add_fiber(
-            storage, "f_old", {"n3", "n4", "n5"}, "n3",
+            storage,
+            "f_old",
+            {"n3", "n4", "n5"},
+            "n3",
             salience=0.45,
             last_conducted=now - timedelta(days=30),
         )
@@ -404,7 +404,10 @@ class TestRecentAccessBoost:
 
         now = utcnow()
         await _add_fiber(
-            storage, "f1", {"n0", "n1", "n2"}, "n0",
+            storage,
+            "f1",
+            {"n0", "n1", "n2"},
+            "n0",
             salience=0.5,
             last_conducted=now - timedelta(days=10),
         )
@@ -429,7 +432,10 @@ class TestRecentAccessBoost:
             await _add_neuron(storage, f"n{i}", f"concept {i}")
 
         await _add_fiber(
-            storage, "f1", {"n0", "n1", "n2"}, "n0",
+            storage,
+            "f1",
+            {"n0", "n1", "n2"},
+            "n0",
             salience=0.5,
             last_conducted=None,
         )
@@ -530,19 +536,28 @@ class TestCombinedScenarios:
 
         # Fiber A: high salience, no topic match
         await _add_fiber(
-            storage, "fA", {"n0", "n1", "n2", "n3"}, "n0",
+            storage,
+            "fA",
+            {"n0", "n1", "n2", "n3"},
+            "n0",
             salience=0.8,
             metadata={"tags": ["database"]},
         )
         # Fiber B: overlaps with A (75%), no topic match
         await _add_fiber(
-            storage, "fB", {"n0", "n1", "n2", "n4"}, "n0",
+            storage,
+            "fB",
+            {"n0", "n1", "n2", "n4"},
+            "n0",
             salience=0.75,
             metadata={"tags": ["database"]},
         )
         # Fiber C: no overlap with A, topic match, lower salience
         await _add_fiber(
-            storage, "fC", {"n5", "n6", "n7"}, "n5",
+            storage,
+            "fC",
+            {"n5", "n6", "n7"},
+            "n5",
             salience=0.4,
             metadata={"tags": ["auth", "security"]},
         )
@@ -550,9 +565,7 @@ class TestCombinedScenarios:
         activations = {f"n{i}": _activation(f"n{i}", 0.7) for i in range(8)}
 
         pipeline = ReflexPipeline(storage, config)
-        fibers = await pipeline._find_matching_fibers(
-            activations, session_topics={"auth"}
-        )
+        fibers = await pipeline._find_matching_fibers(activations, session_topics={"auth"})
 
         fiber_ids = [f.id for f in fibers]
         assert "fA" in fiber_ids, "Highest scorer should be included"
@@ -566,14 +579,20 @@ class TestCombinedScenarios:
         now = utcnow()
         # Fiber with both boosts: recent access + topic match, but low salience
         await _add_fiber(
-            storage, "f_boosted", {"n0", "n1", "n2"}, "n0",
+            storage,
+            "f_boosted",
+            {"n0", "n1", "n2"},
+            "n0",
             salience=0.3,
             last_conducted=now - timedelta(hours=12),
             metadata={"tags": ["auth"]},
         )
         # Fiber with neither boost, but higher salience
         await _add_fiber(
-            storage, "f_plain", {"n3", "n4", "n5"}, "n3",
+            storage,
+            "f_plain",
+            {"n3", "n4", "n5"},
+            "n3",
             salience=0.45,
             last_conducted=now - timedelta(days=30),
             metadata={"tags": ["database"]},
@@ -582,9 +601,7 @@ class TestCombinedScenarios:
         activations = {f"n{i}": _activation(f"n{i}", 0.7) for i in range(6)}
 
         pipeline = ReflexPipeline(storage, config)
-        fibers = await pipeline._find_matching_fibers(
-            activations, session_topics={"auth"}
-        )
+        fibers = await pipeline._find_matching_fibers(activations, session_topics={"auth"})
 
         fiber_ids = [f.id for f in fibers]
         # Combined boosts (+0.15 topic + 0.1 recent) should overcome salience gap

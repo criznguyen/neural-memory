@@ -6,14 +6,9 @@ auto-classification confidence, and importance scoring improvements.
 
 from __future__ import annotations
 
-import re
-
-import pytest
-
 from neural_memory.engine.importance import auto_importance_score
 from neural_memory.engine.pipeline_steps import _classify_confidence
-from neural_memory.engine.quality_scorer import QualityResult, score_memory
-
+from neural_memory.engine.quality_scorer import score_memory
 
 # ---------------------------------------------------------------------------
 # T3.1: Quality scorer enhancements
@@ -35,9 +30,7 @@ class TestQualityScorerEnhancements:
     def test_specificity_bonus_version_numbers(self):
         """Version numbers in content should boost quality score."""
         without = score_memory("Upgraded the auth library", memory_type="fact")
-        with_version = score_memory(
-            "Upgraded auth library to v4.28.0", memory_type="fact"
-        )
+        with_version = score_memory("Upgraded auth library to v4.28.0", memory_type="fact")
         assert with_version.score > without.score
 
     def test_structure_markers_bonus(self):
@@ -175,17 +168,13 @@ class TestImportanceScoringImprovements:
     def test_file_path_bonus(self):
         """File paths should boost importance."""
         without = auto_importance_score("Changed the auth handler", "fact", [])
-        with_path = auto_importance_score(
-            "Changed auth handler in src/auth.py", "fact", []
-        )
+        with_path = auto_importance_score("Changed auth handler in src/auth.py", "fact", [])
         assert with_path > without
 
     def test_version_number_bonus(self):
         """Version numbers should boost importance."""
         without = auto_importance_score("Upgraded the library", "fact", [])
-        with_version = auto_importance_score(
-            "Upgraded to v4.28.0", "fact", []
-        )
+        with_version = auto_importance_score("Upgraded to v4.28.0", "fact", [])
         assert with_version > without
 
     def test_error_trace_bonus(self):
@@ -206,9 +195,7 @@ class TestImportanceScoringImprovements:
 
     def test_cve_reference_bonus(self):
         """CVE references should trigger security bonus."""
-        score = auto_importance_score(
-            "Patched CVE-2024-1234 in auth module", "error", []
-        )
+        score = auto_importance_score("Patched CVE-2024-1234 in auth module", "error", [])
         # Error type (+2) + security (+2) = at least 9
         assert score >= 7
 
@@ -224,9 +211,7 @@ class TestImportanceScoringImprovements:
 
     def test_base_score_for_simple_content(self):
         """Simple fact with adequate length should get base score of 5."""
-        score = auto_importance_score(
-            "The sky is blue and the grass is green", "fact", []
-        )
+        score = auto_importance_score("The sky is blue and the grass is green", "fact", [])
         assert score == 5
 
     def test_combined_bonuses(self):
@@ -310,9 +295,7 @@ class TestAutoSaveCombined:
     def test_classification_confidence_alignment(self):
         """Content matching its type should have high confidence."""
         # Error content classified as error → high confidence
-        error_conf = _classify_confidence(
-            "Bug caused crash with TypeError exception", "error"
-        )
+        error_conf = _classify_confidence("Bug caused crash with TypeError exception", "error")
         # Same content classified as workflow → low confidence
         workflow_conf = _classify_confidence(
             "Bug caused crash with TypeError exception", "workflow"

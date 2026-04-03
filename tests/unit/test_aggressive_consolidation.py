@@ -17,13 +17,11 @@ from neural_memory.core.neuron import Neuron, NeuronType
 from neural_memory.engine.consolidation import (
     ConsolidationConfig,
     ConsolidationEngine,
-    ConsolidationReport,
     ConsolidationStrategy,
 )
 from neural_memory.storage.memory_store import InMemoryStorage
 from neural_memory.utils.simhash import simhash
 from neural_memory.utils.timeutils import utcnow
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -112,12 +110,9 @@ class TestSimHashMerge:
         await _add_fiber(storage, "f2", {"n3", "n4"}, "n3")
 
         engine = ConsolidationEngine(storage, config)
-        report = await engine.run(
-            strategies=[ConsolidationStrategy.MERGE], dry_run=False
-        )
+        report = await engine.run(strategies=[ConsolidationStrategy.MERGE], dry_run=False)
 
-        fibers = await storage.get_fibers(limit=100)
-        # Should have merged into 1 (or 1 merged + originals if summary)
+        # Should have merged into 1
         assert report.fibers_merged == 2
         assert report.fibers_created == 1
 
@@ -137,9 +132,7 @@ class TestSimHashMerge:
         await _add_fiber(storage, "f2", {"n3", "n4"}, "n3")
 
         engine = ConsolidationEngine(storage, config)
-        report = await engine.run(
-            strategies=[ConsolidationStrategy.MERGE], dry_run=False
-        )
+        report = await engine.run(strategies=[ConsolidationStrategy.MERGE], dry_run=False)
 
         assert report.fibers_merged == 0
 
@@ -155,17 +148,11 @@ class TestSimHashMerge:
         await _add_neuron(storage, "n3", content=text, content_hash=h)
         await _add_neuron(storage, "n4", content="filler2")
 
-        await _add_fiber(
-            storage, "f1", {"n1", "n2"}, "n1", metadata={"_verbatim": True}
-        )
-        await _add_fiber(
-            storage, "f2", {"n3", "n4"}, "n3", metadata={"_verbatim": False}
-        )
+        await _add_fiber(storage, "f1", {"n1", "n2"}, "n1", metadata={"_verbatim": True})
+        await _add_fiber(storage, "f2", {"n3", "n4"}, "n3", metadata={"_verbatim": False})
 
         engine = ConsolidationEngine(storage, config)
-        report = await engine.run(
-            strategies=[ConsolidationStrategy.MERGE], dry_run=False
-        )
+        report = await engine.run(strategies=[ConsolidationStrategy.MERGE], dry_run=False)
 
         assert report.fibers_merged == 0
 
@@ -186,9 +173,7 @@ class TestSimHashMerge:
         await _add_fiber(storage, "f2", {"n2", "n3"}, "n3")
 
         engine = ConsolidationEngine(storage, config)
-        report = await engine.run(
-            strategies=[ConsolidationStrategy.MERGE], dry_run=False
-        )
+        report = await engine.run(strategies=[ConsolidationStrategy.MERGE], dry_run=False)
 
         # Should all end up in one group via transitive closure
         assert report.fibers_merged >= 2
@@ -213,9 +198,7 @@ class TestStaleDetection:
         await _add_fiber(storage, "f_new", {"n_new"}, "n_new")
 
         engine = ConsolidationEngine(storage, config)
-        report = await engine.run(
-            strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=False
-        )
+        report = await engine.run(strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=False)
 
         f_old = await storage.get_fiber("f_old")
         assert f_old is not None
@@ -238,9 +221,7 @@ class TestStaleDetection:
         await _add_fiber(storage, "f2", {"n2"}, "n2")
 
         engine = ConsolidationEngine(storage, config)
-        report = await engine.run(
-            strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=False
-        )
+        await engine.run(strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=False)
 
         f1 = await storage.get_fiber("f1")
         assert f1 is not None
@@ -257,9 +238,7 @@ class TestStaleDetection:
         await _add_fiber(storage, "f_new", {"n_new"}, "n_new")
 
         engine = ConsolidationEngine(storage, config)
-        report = await engine.run(
-            strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=True
-        )
+        await engine.run(strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=True)
 
         f_old = await storage.get_fiber("f_old")
         assert f_old is not None
@@ -283,9 +262,7 @@ class TestAccessDemotion:
         await _add_fiber(storage, "f1", {"n1"}, "n1", frequency=0, created_at=old_date)
 
         engine = ConsolidationEngine(storage, config)
-        report = await engine.run(
-            strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=False
-        )
+        report = await engine.run(strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=False)
 
         fiber = await storage.get_fiber("f1")
         assert fiber is not None
@@ -298,14 +275,10 @@ class TestAccessDemotion:
         """Fiber with frequency > 0 is NOT demoted even if old."""
         old_date = utcnow() - timedelta(days=45)
         await _add_neuron(storage, "n1", content="frequently recalled")
-        await _add_fiber(
-            storage, "f1", {"n1"}, "n1", frequency=5, created_at=old_date
-        )
+        await _add_fiber(storage, "f1", {"n1"}, "n1", frequency=5, created_at=old_date)
 
         engine = ConsolidationEngine(storage, config)
-        await engine.run(
-            strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=False
-        )
+        await engine.run(strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=False)
 
         fiber = await storage.get_fiber("f1")
         assert fiber is not None
@@ -320,9 +293,7 @@ class TestAccessDemotion:
         await _add_fiber(storage, "f1", {"n1"}, "n1", frequency=0, created_at=old_date)
 
         engine = ConsolidationEngine(storage, config)
-        report = await engine.run(
-            strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=False
-        )
+        report = await engine.run(strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=False)
 
         fiber = await storage.get_fiber("f1")
         assert fiber is not None
@@ -336,14 +307,10 @@ class TestAccessDemotion:
         """Pinned fibers are never demoted regardless of age/access."""
         old_date = utcnow() - timedelta(days=200)
         await _add_neuron(storage, "n1", content="pinned memory")
-        await _add_fiber(
-            storage, "f1", {"n1"}, "n1", frequency=0, created_at=old_date, pinned=True
-        )
+        await _add_fiber(storage, "f1", {"n1"}, "n1", frequency=0, created_at=old_date, pinned=True)
 
         engine = ConsolidationEngine(storage, config)
-        await engine.run(
-            strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=False
-        )
+        await engine.run(strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=False)
 
         fiber = await storage.get_fiber("f1")
         assert fiber is not None
@@ -358,9 +325,7 @@ class TestAccessDemotion:
         await _add_fiber(storage, "f1", {"n1"}, "n1", frequency=0)
 
         engine = ConsolidationEngine(storage, config)
-        await engine.run(
-            strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=False
-        )
+        await engine.run(strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=False)
 
         fiber = await storage.get_fiber("f1")
         assert fiber is not None
@@ -388,14 +353,10 @@ class TestSummaryFiber:
         for i in range(6):
             unique = f"u{i}"
             await _add_neuron(storage, unique, content=f"unique {i}")
-            await _add_fiber(
-                storage, f"f{i}", shared | {unique}, "s1", salience=0.5
-            )
+            await _add_fiber(storage, f"f{i}", shared | {unique}, "s1", salience=0.5)
 
         engine = ConsolidationEngine(storage, config)
-        report = await engine.run(
-            strategies=[ConsolidationStrategy.MERGE], dry_run=False
-        )
+        report = await engine.run(strategies=[ConsolidationStrategy.MERGE], dry_run=False)
 
         assert report.fibers_merged >= 5
         assert report.fibers_created >= 1
@@ -423,9 +384,7 @@ class TestSummaryFiber:
             fiber_ids.append(fid)
 
         engine = ConsolidationEngine(storage, config)
-        report = await engine.run(
-            strategies=[ConsolidationStrategy.MERGE], dry_run=False
-        )
+        report = await engine.run(strategies=[ConsolidationStrategy.MERGE], dry_run=False)
 
         # Originals should NOT be removed (demoted instead)
         assert report.fibers_removed == 0
@@ -450,9 +409,7 @@ class TestSummaryFiber:
             await _add_fiber(storage, f"f{i}", shared | {unique}, "s1")
 
         engine = ConsolidationEngine(storage, config)
-        report = await engine.run(
-            strategies=[ConsolidationStrategy.MERGE], dry_run=False
-        )
+        report = await engine.run(strategies=[ConsolidationStrategy.MERGE], dry_run=False)
 
         # Standard merge: originals deleted
         assert report.fibers_removed >= 2
@@ -468,9 +425,6 @@ class TestStalePenalty:
 
     def test_stale_penalty_applied(self) -> None:
         """Fiber with _stale=True gets 0.8x score multiplier."""
-        from neural_memory.engine.retrieval import ReflexPipeline
-        from neural_memory.engine.activation import ActivationResult
-
         # Create two identical fibers, one stale
         normal_fiber = Fiber(
             id="f_normal",
@@ -493,25 +447,7 @@ class TestStalePenalty:
             metadata={"_stale": True},
         )
 
-        # Build a minimal _fiber_score context
-        config = BrainConfig()
-        activations = {
-            "n1": ActivationResult(
-                neuron_id="n1",
-                activation_level=1.0,
-                hop_distance=0,
-                path=["n1"],
-                source_anchor="n1",
-            )
-        }
-
-        # Score both fibers using the scoring function
-        # We test by checking relative scores
-        pipeline = ReflexPipeline.__new__(ReflexPipeline)
-        pipeline._config = config
-
-        # Access the scoring closure directly is complex; test via relative assertion
-        # Instead, verify the metadata flag exists and score ratio
+        # Verify the metadata flag that _fiber_score checks for -20% penalty
         assert stale_fiber.metadata.get("_stale") is True
         assert not normal_fiber.metadata.get("_stale")
 
@@ -527,9 +463,7 @@ class TestStalePenalty:
 
         # The retrieval code checks:
         # stage = getattr(fiber, "stage", None) or fiber_meta.get("_stage")
-        stage = getattr(summary_fiber, "stage", None) or summary_fiber.metadata.get(
-            "_stage"
-        )
+        stage = getattr(summary_fiber, "stage", None) or summary_fiber.metadata.get("_stage")
         assert stage == "semantic"
 
 
@@ -561,9 +495,7 @@ class TestSurfaceRegeneration:
             "_regenerate_surface_after_consolidation",
             new_callable=AsyncMock,
         ) as mock_regen:
-            await engine.run(
-                strategies=[ConsolidationStrategy.MERGE], dry_run=False
-            )
+            await engine.run(strategies=[ConsolidationStrategy.MERGE], dry_run=False)
             mock_regen.assert_called_once()
 
     async def test_no_surface_regen_on_dry_run(
@@ -586,9 +518,7 @@ class TestSurfaceRegeneration:
             "_regenerate_surface_after_consolidation",
             new_callable=AsyncMock,
         ) as mock_regen:
-            await engine.run(
-                strategies=[ConsolidationStrategy.MERGE], dry_run=True
-            )
+            await engine.run(strategies=[ConsolidationStrategy.MERGE], dry_run=True)
             mock_regen.assert_not_called()
 
     async def test_no_surface_regen_when_nothing_changed(
@@ -606,9 +536,7 @@ class TestSurfaceRegeneration:
             "_regenerate_surface_after_consolidation",
             new_callable=AsyncMock,
         ) as mock_regen:
-            await engine.run(
-                strategies=[ConsolidationStrategy.MERGE], dry_run=False
-            )
+            await engine.run(strategies=[ConsolidationStrategy.MERGE], dry_run=False)
             mock_regen.assert_not_called()
 
 
@@ -628,15 +556,11 @@ class TestCombinedScenarios:
         await _add_neuron(storage, "n_old", content="Legacy v1.0 code pattern")
         await _add_neuron(storage, "n_new", content="Modern v5.0 feature")
 
-        await _add_fiber(
-            storage, "f_old", {"n_old"}, "n_old", frequency=0, created_at=old_date
-        )
+        await _add_fiber(storage, "f_old", {"n_old"}, "n_old", frequency=0, created_at=old_date)
         await _add_fiber(storage, "f_new", {"n_new"}, "n_new", frequency=3)
 
         engine = ConsolidationEngine(storage, config)
-        report = await engine.run(
-            strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=False
-        )
+        await engine.run(strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=False)
 
         fiber = await storage.get_fiber("f_old")
         assert fiber is not None
@@ -651,12 +575,10 @@ class TestCombinedScenarios:
 
         # Fiber that will NOT merge but will get demoted
         await _add_neuron(storage, "n_solo", content="standalone old memory")
-        await _add_fiber(
-            storage, "f_solo", {"n_solo"}, "n_solo", frequency=0, created_at=old_date
-        )
+        await _add_fiber(storage, "f_solo", {"n_solo"}, "n_solo", frequency=0, created_at=old_date)
 
         engine = ConsolidationEngine(storage, config)
-        report = await engine.run(
+        await engine.run(
             strategies=[ConsolidationStrategy.MERGE, ConsolidationStrategy.LIFECYCLE],
             dry_run=False,
         )
@@ -682,9 +604,7 @@ class TestCombinedScenarios:
         )
 
         engine = ConsolidationEngine(storage, config)
-        report = await engine.run(
-            strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=False
-        )
+        report = await engine.run(strategies=[ConsolidationStrategy.LIFECYCLE], dry_run=False)
 
         # Should not increment count for already-flagged
         assert report.extra.get("cold_demoted", 0) == 0

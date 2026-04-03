@@ -436,9 +436,7 @@ class EvolutionHandler:
             logger.debug("Action recording failed (non-critical)", exc_info=True)
 
     @staticmethod
-    def _feed_tool_topics_to_ema(
-        session_id: str, context: str, action_type: str
-    ) -> None:
+    def _feed_tool_topics_to_ema(session_id: str, context: str, action_type: str) -> None:
         """Extract topic keywords from tool context and feed into session EMA.
 
         Uses half-weight alpha (0.15 vs default 0.3) so tool activity is a

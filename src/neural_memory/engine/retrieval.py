@@ -19,10 +19,8 @@ from neural_memory.core.synapse import (
     SEQUENTIAL_TYPES,
     SUPERSESSION_SOURCE_IS_NEWER,
     SUPERSESSION_TYPES,
-    SYNAPSE_ROLES,
     WEAKENING_TYPES,
     Synapse,
-    SynapseRole,
     SynapseType,
 )
 from neural_memory.engine.activation import ActivationResult, SpreadingActivation
@@ -1511,7 +1509,7 @@ class ReflexPipeline:
         # --- SUPERSESSION: determine outdated vs latest, follow chains ---
         # First pass: collect all chain targets for batch prefetch
         chain_targets: set[str] = set()
-        for source_id, synapses in active_synapses.items():
+        for synapses in active_synapses.values():
             for syn in synapses:
                 if syn.type in SUPERSESSION_TYPES:
                     chain_targets.add(syn.target_id)
@@ -1527,20 +1525,14 @@ class ReflexPipeline:
 
         def _get_outgoing_supersession(nid: str) -> list[Synapse]:
             """Get outgoing supersession synapses from cache."""
-            syns = (
-                synapses_by_source.get(nid)
-                or chain_synapses_cache.get(nid)
-                or []
-            )
+            syns = synapses_by_source.get(nid) or chain_synapses_cache.get(nid) or []
             return [s for s in syns if s.type in SUPERSESSION_TYPES]
 
         # Shared visited set across all supersession edges (H2 fix)
         chain_visited: set[str] = set()
 
         for source_id, synapses in active_synapses.items():
-            supersession_synapses = [
-                s for s in synapses if s.type in SUPERSESSION_TYPES
-            ]
+            supersession_synapses = [s for s in synapses if s.type in SUPERSESSION_TYPES]
             if not supersession_synapses:
                 continue
 
@@ -1607,7 +1599,10 @@ class ReflexPipeline:
                 base_score = source_activation.activation_level
                 boosted_score = min(base_score * 1.2, 1.0)
 
-                if ultimate_latest not in result or result[ultimate_latest].activation_level < boosted_score:
+                if (
+                    ultimate_latest not in result
+                    or result[ultimate_latest].activation_level < boosted_score
+                ):
                     result[ultimate_latest] = ActivationResult(
                         neuron_id=ultimate_latest,
                         activation_level=boosted_score,
@@ -1642,7 +1637,7 @@ class ReflexPipeline:
 
         # --- WEAKENING: demote target activation by 50% (capped, C2 fix) ---
         weakening_counts: dict[str, int] = {}
-        for source_id, synapses in active_synapses.items():
+        for synapses in active_synapses.values():
             for syn in synapses:
                 if syn.type not in WEAKENING_TYPES:
                     continue
@@ -1654,7 +1649,7 @@ class ReflexPipeline:
                     continue
                 count = weakening_counts.get(target_id, 0)
                 if count >= 1:
-                    continue  # C2: cap at one weakening (×0.5 floor)
+                    continue  # C2: cap at one weakening (x0.5 floor)
                 weakening_counts[target_id] = count + 1
                 demoted_level = activation.activation_level * 0.5
                 if demoted_level >= self._config.activation_threshold:
@@ -1670,7 +1665,7 @@ class ReflexPipeline:
 
         # --- REINFORCEMENT: boost target activation additively ---
         reinforcement_boosts: dict[str, float] = {}
-        for source_id, synapses in active_synapses.items():
+        for synapses in active_synapses.values():
             for syn in synapses:
                 if syn.type not in REINFORCEMENT_TYPES:
                     continue
@@ -1694,7 +1689,7 @@ class ReflexPipeline:
             )
 
         # --- SEQUENTIAL: light priming boost ---
-        for source_id, synapses in active_synapses.items():
+        for synapses in active_synapses.values():
             for syn in synapses:
                 if syn.type not in SEQUENTIAL_TYPES:
                     continue
@@ -2239,9 +2234,7 @@ class ReflexPipeline:
         penalty_factor = self._config.diversity_penalty_factor
 
         # Batch-fetch anchor neurons for SimHash (T1.3)
-        anchor_ids = list(dict.fromkeys(
-            f.anchor_neuron_id for _, f in scored[:30]
-        ))
+        anchor_ids = list(dict.fromkeys(f.anchor_neuron_id for _, f in scored[:30]))
         anchor_neurons = await self._storage.get_neurons_batch(anchor_ids) if anchor_ids else {}
 
         selected: list[Fiber] = []

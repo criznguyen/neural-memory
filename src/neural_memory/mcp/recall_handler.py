@@ -878,7 +878,9 @@ class RecallHandler:
                 ghost_parts = []
                 for item in ghost_items:
                     if item.superseded_by:
-                        ghost_parts.append(f"- [OUTDATED] {item.content} → See: {item.superseded_by}")
+                        ghost_parts.append(
+                            f"- [OUTDATED] {item.content} → See: {item.superseded_by}"
+                        )
                     else:
                         ghost_parts.append(f"- {item.content}")
                 ghost_section = "\n--- faded memories (use recall key to restore) ---\n"
@@ -889,21 +891,33 @@ class RecallHandler:
 
             # Prepend corrections section (cross-session learning)
             if corrections_text:
-                context_text = corrections_text + "\n" + context_text if context_text else corrections_text
+                context_text = (
+                    corrections_text + "\n" + context_text if context_text else corrections_text
+                )
 
             # A8 Phase 2: Prepend proactive context sections
             # Order: session summary → signals → topic context → corrections → main context
             if topic_context_text:
-                context_text = topic_context_text + "\n" + context_text if context_text else topic_context_text
+                context_text = (
+                    topic_context_text + "\n" + context_text if context_text else topic_context_text
+                )
             if signals_text:
                 context_text = signals_text + "\n" + context_text if context_text else signals_text
             if session_summary_text:
-                context_text = session_summary_text + "\n" + context_text if context_text else session_summary_text
+                context_text = (
+                    session_summary_text + "\n" + context_text
+                    if context_text
+                    else session_summary_text
+                )
 
             if not context_text:
                 context_text = "No context available."
         else:
-            parts = [p for p in [session_summary_text, signals_text, topic_context_text, corrections_text] if p]
+            parts = [
+                p
+                for p in [session_summary_text, signals_text, topic_context_text, corrections_text]
+                if p
+            ]
             context_text = "\n".join(parts) if parts else "No context available."
 
         # Track ghost shown timestamps (only if ghosts were actually shown)
@@ -1127,7 +1141,10 @@ class RecallHandler:
                                         limit=1,
                                     )
                                     for fiber in fibers:
-                                        if fiber.id not in local_seen and len(matched_fiber_ids) < 9:
+                                        if (
+                                            fiber.id not in local_seen
+                                            and len(matched_fiber_ids) < 9
+                                        ):
                                             matched_fiber_ids.append(fiber.id)
                                             local_seen.add(fiber.id)
                             except Exception:
@@ -1149,17 +1166,19 @@ class RecallHandler:
                         except Exception:
                             continue
                     if topic_lines:
-                        result["topic_context"] = (
-                            "--- active topic context ---\n" + "\n".join(topic_lines)
+                        result["topic_context"] = "--- active topic context ---\n" + "\n".join(
+                            topic_lines
                         )
 
         # T2.4: Session meta-summary
         summary_parts: list[str] = []
         if session_state:
             topic_weights = session_state.get_topic_weights(limit=3)
-            topic_str = ", ".join(
-                f"{t} ({w:.1f})" for t, w in topic_weights.items()
-            ) if topic_weights else "none"
+            topic_str = (
+                ", ".join(f"{t} ({w:.1f})" for t, w in topic_weights.items())
+                if topic_weights
+                else "none"
+            )
             summary_parts.append(
                 f"Session: {session_state.query_count} queries | topics: {topic_str}"
             )

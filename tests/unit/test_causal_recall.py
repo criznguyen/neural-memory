@@ -10,7 +10,6 @@ from neural_memory.core.synapse import (
     ACTIVE_ROLE_TYPES,
     REINFORCEMENT_TYPES,
     SEQUENTIAL_TYPES,
-    SUPERSESSION_SOURCE_IS_NEWER,
     SUPERSESSION_TYPES,
     SYNAPSE_ROLES,
     WEAKENING_TYPES,
@@ -21,7 +20,6 @@ from neural_memory.core.synapse import (
 from neural_memory.engine.activation import ActivationResult
 from neural_memory.engine.context_optimizer import ContextItem
 from neural_memory.storage.memory_store import InMemoryStorage
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -143,17 +141,13 @@ class TestSynapseRoleClassification:
 
     def test_passive_not_in_active(self):
         """PASSIVE types should not be in ACTIVE_ROLE_TYPES."""
-        passive_types = {
-            st for st, role in SYNAPSE_ROLES.items() if role == SynapseRole.PASSIVE
-        }
+        passive_types = {st for st, role in SYNAPSE_ROLES.items() if role == SynapseRole.PASSIVE}
         assert not passive_types & ACTIVE_ROLE_TYPES
 
     def test_active_roles_union(self):
         """ACTIVE_ROLE_TYPES = SUPERSESSION + REINFORCEMENT + WEAKENING + SEQUENTIAL."""
-        expected = (
-            SUPERSESSION_TYPES | REINFORCEMENT_TYPES | WEAKENING_TYPES | SEQUENTIAL_TYPES
-        )
-        assert ACTIVE_ROLE_TYPES == expected
+        expected = SUPERSESSION_TYPES | REINFORCEMENT_TYPES | WEAKENING_TYPES | SEQUENTIAL_TYPES
+        assert expected == ACTIVE_ROLE_TYPES
 
 
 # ===========================================================================
@@ -179,7 +173,7 @@ class TestSupersession:
         assert "fix1" in result
         assert result["fix1"].activation_level == pytest.approx(0.8 * 1.2, rel=0.01)
 
-        # Error should be demoted to ghost level (×0.1)
+        # Error should be demoted to ghost level (x0.1)
         assert "error1" in result
         assert result["error1"].activation_level == pytest.approx(0.8 * 0.1, rel=0.01)
 
@@ -217,7 +211,7 @@ class TestSupersession:
         for i in range(10):
             await _add_neuron(storage, f"n{i}", f"Version {i}")
         for i in range(9):
-            await _add_synapse(storage, f"n{i}", f"n{i+1}", SynapseType.RESOLVED_BY)
+            await _add_synapse(storage, f"n{i}", f"n{i + 1}", SynapseType.RESOLVED_BY)
 
         pipeline = await _make_pipeline(storage, config)
         activations = {"n0": _activation("n0", 0.9)}
@@ -617,7 +611,7 @@ class TestCombinedScenarios:
         assert result["step2"].activation_level == pytest.approx(0.4, rel=0.01)
 
     async def test_weakening_capped_at_one(self, storage, config):
-        """Multiple weakening edges should only apply once (×0.5 floor)."""
+        """Multiple weakening edges should only apply once (x0.5 floor)."""
         await _add_neuron(storage, "c1", "Counter 1")
         await _add_neuron(storage, "c2", "Counter 2")
         await _add_neuron(storage, "hyp", "Hypothesis")
@@ -701,7 +695,9 @@ class TestHabitFrequencyBoost:
 
     async def test_habit_boost_proportional(self, storage, config):
         """Neuron with _habit_frequency=2 gets +0.1 boost."""
-        await _add_neuron(storage, "habit", "Run tests before commit", metadata={"_habit_frequency": 2})
+        await _add_neuron(
+            storage, "habit", "Run tests before commit", metadata={"_habit_frequency": 2}
+        )
 
         pipeline = await _make_pipeline(storage, config)
         activations = {"habit": _activation("habit", 0.5)}
@@ -736,7 +732,9 @@ class TestHabitFrequencyBoost:
 
     async def test_habit_boost_capped_at_1(self, storage, config):
         """Habit boost should not exceed 1.0 total activation."""
-        await _add_neuron(storage, "hot_habit", "Critical workflow", metadata={"_habit_frequency": 5})
+        await _add_neuron(
+            storage, "hot_habit", "Critical workflow", metadata={"_habit_frequency": 5}
+        )
 
         pipeline = await _make_pipeline(storage, config)
         activations = {"hot_habit": _activation("hot_habit", 0.95)}

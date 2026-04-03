@@ -404,7 +404,7 @@ def _build_code_patterns() -> list[_PatternEntry]:
     """Build compiled regex patterns for code-semantic relations."""
     patterns: list[_PatternEntry] = []
 
-    # "X imports Y" / "X import Y" / "from Y import X"
+    # Pattern: "X imports Y", "X import Y", "from Y import X"
     patterns.append(
         (
             re.compile(

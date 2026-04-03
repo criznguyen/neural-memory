@@ -23,12 +23,10 @@ from neural_memory.extraction.entities import (
     EntityType,
 )
 from neural_memory.extraction.keywords import (
-    WeightedKeyword,
     extract_keywords,
     extract_weighted_keywords,
 )
 from neural_memory.extraction.relations import RelationExtractor
-
 
 # ── Code Synapse Types ────────────────────────────────────────────
 

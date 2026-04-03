@@ -200,10 +200,12 @@ ACTIVE_ROLE_TYPES: frozenset[SynapseType] = (
 # For these, the SOURCE is the latest version and should be BOOSTED (not demoted).
 # SUPERSEDES: "new_schema SUPERSEDES old_schema" → source=new, target=old
 # EVOLVES_FROM: "new_decision EVOLVES_FROM old_decision" → source=new, target=old
-SUPERSESSION_SOURCE_IS_NEWER: frozenset[SynapseType] = frozenset({
-    SynapseType.SUPERSEDES,
-    SynapseType.EVOLVES_FROM,
-})
+SUPERSESSION_SOURCE_IS_NEWER: frozenset[SynapseType] = frozenset(
+    {
+        SynapseType.SUPERSEDES,
+        SynapseType.EVOLVES_FROM,
+    }
+)
 
 
 class Direction(StrEnum):

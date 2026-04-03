@@ -9,15 +9,12 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
-
 from neural_memory.engine.context_optimizer import (
     ContextItem,
     ContextPlan,
     FidelityStats,
     compute_composite_score,
 )
-
 
 # ── ContextItem tier field ────────────────────────────────────────
 
@@ -72,18 +69,28 @@ class TestHotTierLabel:
 
     def test_hot_item_gets_label(self) -> None:
         """Simulate what recall_handler does with HOT items."""
-        item = ContextItem(fiber_id="f1", content="Safety rule", score=0.9, token_count=5, tier="hot")
-        line = f"- [{item.tier.upper()}] {item.content}" if item.tier == "hot" else f"- {item.content}"
+        item = ContextItem(
+            fiber_id="f1", content="Safety rule", score=0.9, token_count=5, tier="hot"
+        )
+        line = (
+            f"- [{item.tier.upper()}] {item.content}" if item.tier == "hot" else f"- {item.content}"
+        )
         assert line == "- [HOT] Safety rule"
 
     def test_warm_item_no_label(self) -> None:
-        item = ContextItem(fiber_id="f2", content="A decision", score=0.5, token_count=5, tier="warm")
-        line = f"- [{item.tier.upper()}] {item.content}" if item.tier == "hot" else f"- {item.content}"
+        item = ContextItem(
+            fiber_id="f2", content="A decision", score=0.5, token_count=5, tier="warm"
+        )
+        line = (
+            f"- [{item.tier.upper()}] {item.content}" if item.tier == "hot" else f"- {item.content}"
+        )
         assert line == "- A decision"
 
     def test_cold_item_no_label(self) -> None:
         item = ContextItem(fiber_id="f3", content="Old fact", score=0.2, token_count=5, tier="cold")
-        line = f"- [{item.tier.upper()}] {item.content}" if item.tier == "hot" else f"- {item.content}"
+        line = (
+            f"- [{item.tier.upper()}] {item.content}" if item.tier == "hot" else f"- {item.content}"
+        )
         assert line == "- Old fact"
 
 

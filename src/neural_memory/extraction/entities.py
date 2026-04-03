@@ -515,7 +515,10 @@ class EntityExtractor:
         # Traceback error lines: ValueError: message
         for match in self.TRACEBACK_ERROR_PATTERN.finditer(text):
             error_name = match.group(1)
-            if error_name.lower() not in existing_texts and error_name.lower() not in traceback_texts:
+            if (
+                error_name.lower() not in existing_texts
+                and error_name.lower() not in traceback_texts
+            ):
                 traceback_texts.add(error_name.lower())
                 entities.append(
                     Entity(
@@ -602,7 +605,9 @@ class EntityExtractor:
             # Skip common non-code snake_case (e.g., stop words joined)
             if len(word) < 5:
                 continue
-            subtype = EntitySubtype.FUNCTION_NAME if word in function_names else EntitySubtype.CODE_SYMBOL
+            subtype = (
+                EntitySubtype.FUNCTION_NAME if word in function_names else EntitySubtype.CODE_SYMBOL
+            )
             entities.append(
                 Entity(
                     text=word,

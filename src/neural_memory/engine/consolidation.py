@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -18,8 +19,6 @@ from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
-
-import re
 
 from neural_memory.core.fiber import Fiber
 from neural_memory.core.neuron import Neuron, NeuronType
@@ -758,11 +757,13 @@ class ConsolidationEngine:
         # --- T4.1: SimHash semantic merge pass ---
         # Fetch anchor neuron content_hash for content-based similarity
         simhash_roots: set[int] = set()  # C1 fix: track which roots got SimHash unions
-        anchor_ids_unique = list({
-            fiber_list[i].anchor_neuron_id
-            for i in range(n)
-            if len(fiber_list[i].neuron_ids) <= self._config.merge_max_fiber_size
-        })
+        anchor_ids_unique = list(
+            {
+                fiber_list[i].anchor_neuron_id
+                for i in range(n)
+                if len(fiber_list[i].neuron_ids) <= self._config.merge_max_fiber_size
+            }
+        )
         if anchor_ids_unique:
             anchor_neurons = await self._storage.get_neurons_batch(anchor_ids_unique)
 
@@ -776,9 +777,7 @@ class ConsolidationEngine:
                     fiber_content_hash[idx] = anchor.content_hash
 
             if not fiber_content_hash:
-                logger.debug(
-                    "SimHash pass: no anchor content hashes available"
-                )
+                logger.debug("SimHash pass: no anchor content hashes available")
 
             # Pairwise SimHash comparison (capped to avoid O(n²) blowup)
             hash_indices = sorted(fiber_content_hash.keys())
@@ -803,9 +802,7 @@ class ConsolidationEngine:
                     fj_verbatim = fiber_list[idx_b].metadata.get("_verbatim", False)
                     if fi_verbatim != fj_verbatim:
                         continue
-                    if _simhash_near_dup(
-                        fiber_content_hash[idx_a], fiber_content_hash[idx_b]
-                    ):
+                    if _simhash_near_dup(fiber_content_hash[idx_a], fiber_content_hash[idx_b]):
                         uf.union(idx_a, idx_b)
                         simhash_roots.add(uf.find(idx_a))
 
@@ -1900,13 +1897,9 @@ class ConsolidationEngine:
                 await self._storage.update_fiber_metadata(fiber.id, demotion_updates)
 
         if stale_count:
-            report.extra["stale_flagged"] = (
-                report.extra.get("stale_flagged", 0) + stale_count
-            )
+            report.extra["stale_flagged"] = report.extra.get("stale_flagged", 0) + stale_count
         if cold_demoted:
-            report.extra["cold_demoted"] = (
-                report.extra.get("cold_demoted", 0) + cold_demoted
-            )
+            report.extra["cold_demoted"] = report.extra.get("cold_demoted", 0) + cold_demoted
         if prune_candidates:
             report.extra["prune_candidates"] = (
                 report.extra.get("prune_candidates", 0) + prune_candidates

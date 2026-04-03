@@ -36,21 +36,16 @@ async def _add_correction(
     age_days: int = 0,
 ) -> None:
     """Add an error neuron, fix neuron, and RESOLVED_BY synapse."""
-    error = Neuron.create(
-        type=NeuronType.CONCEPT, content=error_content, neuron_id=error_id
-    )
-    fix = Neuron.create(
-        type=NeuronType.CONCEPT, content=fix_content, neuron_id=fix_id
-    )
+    error = Neuron.create(type=NeuronType.CONCEPT, content=error_content, neuron_id=error_id)
+    fix = Neuron.create(type=NeuronType.CONCEPT, content=fix_content, neuron_id=fix_id)
     await storage.add_neuron(error)
     await storage.add_neuron(fix)
 
     created_at = utcnow() - timedelta(days=age_days)
-    syn = Synapse.create(
-        error_id, fix_id, SynapseType.RESOLVED_BY, weight=1.0
-    )
+    syn = Synapse.create(error_id, fix_id, SynapseType.RESOLVED_BY, weight=1.0)
     # Override created_at for testing recency
     from dataclasses import replace
+
     syn = replace(syn, created_at=created_at)
     await storage.add_synapse(syn)
 
@@ -72,8 +67,10 @@ class TestCorrectionInjection:
         """Recent RESOLVED_BY synapse appears in corrections text."""
         await _add_correction(
             storage,
-            "err1", "TypeError in parser",
-            "fix1", "Added null check in parser",
+            "err1",
+            "TypeError in parser",
+            "fix1",
+            "Added null check in parser",
             age_days=1,
         )
         handler = await self._make_handler()
@@ -87,8 +84,10 @@ class TestCorrectionInjection:
         """Corrections older than max_age_days are excluded."""
         await _add_correction(
             storage,
-            "err1", "Old error",
-            "fix1", "Old fix",
+            "err1",
+            "Old error",
+            "fix1",
+            "Old fix",
             age_days=10,
         )
         handler = await self._make_handler()
@@ -101,15 +100,17 @@ class TestCorrectionInjection:
         for i in range(8):
             await _add_correction(
                 storage,
-                f"err{i}", f"Error {i}",
-                f"fix{i}", f"Fix {i}",
+                f"err{i}",
+                f"Error {i}",
+                f"fix{i}",
+                f"Fix {i}",
                 age_days=i,
             )
         handler = await self._make_handler()
         text = await handler._inject_recent_corrections(storage, max_corrections=3)
 
         # Should have header + 3 correction lines
-        lines = [l for l in text.split("\n") if l.strip()]
+        lines = [line for line in text.split("\n") if line.strip()]
         assert len(lines) == 4  # 1 header + 3 corrections
 
     async def test_no_corrections_empty_string(self, storage):
@@ -122,17 +123,11 @@ class TestCorrectionInjection:
     async def test_missing_neuron_skipped(self, storage):
         """If error or fix neuron is missing, that correction is skipped."""
         # Create both neurons + synapse, then delete the error neuron
-        error = Neuron.create(
-            type=NeuronType.CONCEPT, content="Error", neuron_id="to_delete"
-        )
-        fix = Neuron.create(
-            type=NeuronType.CONCEPT, content="Fix", neuron_id="fix_only"
-        )
+        error = Neuron.create(type=NeuronType.CONCEPT, content="Error", neuron_id="to_delete")
+        fix = Neuron.create(type=NeuronType.CONCEPT, content="Fix", neuron_id="fix_only")
         await storage.add_neuron(error)
         await storage.add_neuron(fix)
-        syn = Synapse.create(
-            "to_delete", "fix_only", SynapseType.RESOLVED_BY
-        )
+        syn = Synapse.create("to_delete", "fix_only", SynapseType.RESOLVED_BY)
         await storage.add_synapse(syn)
         # Remove the error neuron to simulate orphaned synapse
         await storage.delete_neuron("to_delete")
@@ -147,8 +142,10 @@ class TestCorrectionInjection:
         """Verify correction format: error -> fix."""
         await _add_correction(
             storage,
-            "e1", "Bug A",
-            "f1", "Fix A",
+            "e1",
+            "Bug A",
+            "f1",
+            "Fix A",
             age_days=0,
         )
         handler = await self._make_handler()
@@ -180,7 +177,7 @@ class TestCorrectionInjection:
         handler = await self._make_handler()
         text = await handler._inject_recent_corrections(storage)
 
-        lines = [l for l in text.split("\n") if "->" in l]
+        lines = [line for line in text.split("\n") if "->" in line]
         assert "New error" in lines[0]
         assert "Old error" in lines[1]
 

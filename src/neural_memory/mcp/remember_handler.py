@@ -662,9 +662,7 @@ class RememberHandler:
                 dedup_hint["dedup_tier"] = int(dedup_tier)
             # Find the fiber_id for the existing anchor neuron
             try:
-                existing_fibers = await storage.find_fibers(
-                    contains_neuron=dedup_alias_of, limit=1
-                )
+                existing_fibers = await storage.find_fibers(contains_neuron=dedup_alias_of, limit=1)
                 if existing_fibers:
                     dedup_hint["duplicate_of"] = existing_fibers[0].id
             except Exception:

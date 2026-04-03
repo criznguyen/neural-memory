@@ -22,7 +22,6 @@ from neural_memory.surface.models import (
     SurfaceNode,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -84,8 +83,8 @@ async def _call_proactive(
     # Patch SessionManager.get_instance().get() to return our session
     mock_mgr = MagicMock()
     mock_mgr.get.return_value = session_state
-    patches["neural_memory.engine.session_state.SessionManager.get_instance"] = (
-        MagicMock(return_value=mock_mgr)
+    patches["neural_memory.engine.session_state.SessionManager.get_instance"] = MagicMock(
+        return_value=mock_mgr
     )
 
     ctx = {}
@@ -117,26 +116,32 @@ class TestSurfaceSignals:
 
     async def test_urgent_signals_formatted(self):
         """URGENT signals should be prefixed with '!'."""
-        surface = _make_surface(signals=[
-            Signal(level=SignalLevel.URGENT, text="Redis connection pool exhaustion"),
-        ])
+        surface = _make_surface(
+            signals=[
+                Signal(level=SignalLevel.URGENT, text="Redis connection pool exhaustion"),
+            ]
+        )
         result = await _call_proactive(surface=surface)
         assert "! Redis connection pool exhaustion" in result["signals"]
 
     async def test_watching_signals_formatted(self):
         """WATCHING signals should be prefixed with '~'."""
-        surface = _make_surface(signals=[
-            Signal(level=SignalLevel.WATCHING, text="Auth token rotation pending"),
-        ])
+        surface = _make_surface(
+            signals=[
+                Signal(level=SignalLevel.WATCHING, text="Auth token rotation pending"),
+            ]
+        )
         result = await _call_proactive(surface=surface)
         assert "~ Auth token rotation pending" in result["signals"]
 
     async def test_mixed_signals_under_header(self):
         """Both URGENT and WATCHING signals should appear under header."""
-        surface = _make_surface(signals=[
-            Signal(level=SignalLevel.URGENT, text="Critical alert"),
-            Signal(level=SignalLevel.WATCHING, text="Minor watch"),
-        ])
+        surface = _make_surface(
+            signals=[
+                Signal(level=SignalLevel.URGENT, text="Critical alert"),
+                Signal(level=SignalLevel.WATCHING, text="Minor watch"),
+            ]
+        )
         result = await _call_proactive(surface=surface)
         assert "--- active signals ---" in result["signals"]
         assert "! Critical alert" in result["signals"]
@@ -234,7 +239,7 @@ class TestClusterInjection:
         assert result["topic_context"] == ""
 
     async def test_max_9_topic_memories_cap(self):
-        """Should inject at most 9 topic memories (3 clusters × 3 each)."""
+        """Should inject at most 9 topic memories (3 clusters x 3 each)."""
         nodes = [
             SurfaceNode(id=f"d{i}", content=f"auth item {i}", node_type="decision")
             for i in range(15)
@@ -286,7 +291,7 @@ class TestClusterInjection:
         )
         # M5 fix: assert topic_context is non-empty, then check cap
         assert result["topic_context"] != "", "Expected non-empty topic_context for 15 nodes"
-        lines = [l for l in result["topic_context"].split("\n") if l.startswith("- ")]
+        lines = [line for line in result["topic_context"].split("\n") if line.startswith("- ")]
         assert len(lines) <= 9
 
 
@@ -300,9 +305,7 @@ class TestSessionMetaSummary:
 
     async def test_summary_includes_query_count_and_topics(self):
         """Summary should show query count and top topics."""
-        session = _make_session_state(
-            topics={"auth": 0.8, "cache": 0.6}, query_count=12
-        )
+        session = _make_session_state(topics={"auth": 0.8, "cache": 0.6}, query_count=12)
         result = await _call_proactive(session_state=session)
         assert "Session: 12 queries" in result["session_summary"]
         assert "auth" in result["session_summary"]
@@ -388,9 +391,7 @@ class TestToolTopicEmaFeed:
         # Feed via tool (half weight alpha=0.15)
         state1 = mgr.get_or_create("mcp-202")
         state1.topic_ema = {"existing": 1.0}
-        EvolutionHandler._feed_tool_topics_to_ema(
-            "mcp-202", "database", "recall"
-        )
+        EvolutionHandler._feed_tool_topics_to_ema("mcp-202", "database", "recall")
         # existing should decay less with half alpha (0.15) vs full (0.3)
         tool_decay = state1.topic_ema.get("existing", 0.0)
 
@@ -413,9 +414,7 @@ class TestToolTopicEmaFeed:
         from neural_memory.mcp.evolution_handler import EvolutionHandler
 
         # No session created for this ID — should not raise
-        EvolutionHandler._feed_tool_topics_to_ema(
-            "nonexistent-session", "some context", "recall"
-        )
+        EvolutionHandler._feed_tool_topics_to_ema("nonexistent-session", "some context", "recall")
 
     def test_empty_context_no_change(self):
         """Empty context should not modify EMA."""
@@ -444,14 +443,10 @@ class TestProactiveContextCombined:
         """When all data available, all three sections should be populated."""
         surface = _make_surface(
             signals=[Signal(level=SignalLevel.URGENT, text="High CPU usage")],
-            clusters=[
-                Cluster(name="perf", node_ids=("d1",), description="performance")
-            ],
+            clusters=[Cluster(name="perf", node_ids=("d1",), description="performance")],
             meta=SurfaceMeta(coverage=0.92),
             graph=[
-                GraphEntry(
-                    node=SurfaceNode(id="d1", content="perf tuning", node_type="insight")
-                )
+                GraphEntry(node=SurfaceNode(id="d1", content="perf tuning", node_type="insight"))
             ],
         )
         session = _make_session_state(topics={"perf": 0.9}, query_count=8)
@@ -468,9 +463,7 @@ class TestProactiveContextCombined:
         mock_storage.find_fibers = AsyncMock(return_value=[mock_fiber])
         mock_storage.get_fiber = AsyncMock(return_value=mock_fiber)
 
-        result = await _call_proactive(
-            surface=surface, session_state=session, storage=mock_storage
-        )
+        result = await _call_proactive(surface=surface, session_state=session, storage=mock_storage)
 
         assert result["signals"] != ""
         assert result["topic_context"] != ""
