@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.32.0] — 2026-04-05
+
+### Added
+
+- **Phase F: Quality Deep Dive** — comprehensive recall quality improvements across 4 sub-features:
+
+- **F1: Synapse Quality** — causal/semantic synapses now form reliably in mature brains:
+  - Existing neurons tracked in `PipelineContext` so `RelationExtractionStep` can match spans against previously encoded entities/concepts
+  - Word-overlap matching in `_match_span_to_neuron()` with Jaccard-like scoring (falls back from exact → substring → word overlap)
+  - CO_OCCURS synapse initial weight reduced 0.5 → 0.3 to reduce noise in spread activation
+  - Anchor content truncation at 500 chars with sentence-boundary detection
+  - Quality warning on `nmem_remember` when content exceeds 500 chars
+
+- **F2: Fiber Precision** — faster maturation for agent brains, aggressive noise pruning:
+  - EPISODIC→SEMANTIC time gate relaxed: 7 days → 3 days, 3 distinct days → 2
+  - Agent rehearsal path relaxed: 15 rehearsals → 5, 5 windows → 3
+  - Type-aware pruning: CO_OCCURS/ALIAS synapses decay 3× faster when reinforced < 3 times
+  - Associative inference weights reduced: initial 0.3→0.2, max 0.8→0.5
+
+- **F4: Role-Based Spread Activation** — synapse roles now modulate activation traversal:
+  - SEQUENTIAL synapses (CAUSED_BY, LEADS_TO) boost 1.3×
+  - REINFORCEMENT synapses boost 1.2×
+  - LATERAL synapses (CO_OCCURS, RELATED_TO) dampen 0.85×
+  - PASSIVE synapses (ALIAS) skip entirely (0.0×)
+
+### Improved
+
+- **Health diagnostics** — tightened warning thresholds so grade D brains no longer say "healthy"
+- **Brain registry** — Hub-first fetch, proper URL import, export download improvements
+
+### Tests
+
+- 24 new tests: 13 synapse quality, 3 relation encoding, 6 memory stages, 2 activation
+- 4 existing tests updated for new thresholds
+- All 93 Phase F tests passing
+
 ## [4.31.0] — 2026-04-05
 
 ### Added
