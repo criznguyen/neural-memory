@@ -3,10 +3,10 @@
 Implements biologically-inspired memory consolidation stages:
 - SHORT_TERM: First 30 minutes, fragile, decays 5x faster
 - WORKING: 30 min to 4 hours, still volatile, decays 2x faster
-- EPISODIC: 4 hours to 7 days, normal decay
-- SEMANTIC: 7+ days with spacing effect, resistant to forgetting (0.3x decay)
+- EPISODIC: 4 hours to 3 days, normal decay
+- SEMANTIC: 3+ days with spacing effect, resistant to forgetting (0.3x decay)
 
-The spacing effect requires reinforcement across 3+ distinct days
+The spacing effect requires reinforcement across 2+ distinct days
 for promotion from EPISODIC to SEMANTIC, modeling how spaced
 repetition strengthens long-term memory.
 """
@@ -223,7 +223,7 @@ def compute_stage_transition(
         if time_in_stage >= _EPISODIC_TO_SEMANTIC and (
             # Classic path: 3+ distinct calendar days (human spaced repetition)
             record.distinct_reinforcement_days >= _MIN_DISTINCT_DAYS
-            # Agent path: 15+ rehearsals spread across 5+ distinct 2h windows
+            # Agent path: 5+ rehearsals spread across 3+ distinct 2h windows
             or (
                 record.rehearsal_count >= _MIN_REHEARSAL_COUNT
                 and record.distinct_reinforcement_windows >= _MIN_DISTINCT_WINDOWS
