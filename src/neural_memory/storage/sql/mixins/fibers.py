@@ -209,6 +209,7 @@ class FiberMixin:
         min_salience: float | None = None,
         metadata_key: str | None = None,
         limit: int = 100,
+        tag_mode: str = "and",
     ) -> list[Fiber]:
         d = self._dialect
         brain_id = self._get_brain_id()
@@ -247,10 +248,13 @@ class FiberMixin:
             n += 1
 
         if tags is not None and tags:
+            tag_conditions = []
             for tag in tags:
                 params.append(tag)
-                where_parts.append(d.json_array_contains("tags", n))
+                tag_conditions.append(d.json_array_contains("tags", n))
                 n += 1
+            joiner = " AND " if tag_mode != "or" else " OR "
+            where_parts.append("(" + joiner.join(tag_conditions) + ")")
 
         # When tags filter is present, fetch more rows to compensate for
         # possible post-SQL filtering
@@ -267,7 +271,10 @@ class FiberMixin:
 
         # Post-filter by tags for safety (JSON array set operations are imprecise)
         if tags is not None:
-            fibers = [f for f in fibers if tags.issubset(f.tags)]
+            if tag_mode == "or":
+                fibers = [f for f in fibers if tags & f.tags]
+            else:
+                fibers = [f for f in fibers if tags.issubset(f.tags)]
 
         return fibers[:limit]
 
@@ -279,6 +286,7 @@ class FiberMixin:
         neuron_ids: list[str],
         limit_per_neuron: int = 10,
         tags: set[str] | None = None,
+        tag_mode: str = "and",
     ) -> list[Fiber]:
         """Find fibers containing any of the given neurons in a single SQL query."""
         if not neuron_ids:
@@ -298,7 +306,7 @@ class FiberMixin:
         # Advance n past the params consumed by in_clause
         n += len(in_params)
 
-        # Tag filter: all tags must match (AND semantics)
+        # Tag filter: AND = all tags must match, OR = any tag matches
         tag_parts: list[str] = []
         if tags:
             for tag in tags:
@@ -308,7 +316,8 @@ class FiberMixin:
 
         tag_sql = ""
         if tag_parts:
-            tag_sql = " AND " + " AND ".join(tag_parts)
+            joiner = " AND " if tag_mode != "or" else " OR "
+            tag_sql = " AND (" + joiner.join(tag_parts) + ")"
 
         params.append(total_limit)
         sql = (

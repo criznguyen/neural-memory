@@ -442,6 +442,7 @@ class InfinityDBStorage(
         min_salience: float | None = None,
         metadata_key: str | None = None,
         limit: int = 100,
+        tag_mode: str = "and",
     ) -> list[Fiber]:
         if contains_neuron:
             fiber_ids = await self.db.get_fibers_for_neuron(contains_neuron)
