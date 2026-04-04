@@ -54,8 +54,9 @@ export function ExportDialog({ open, onClose, brainName }: ExportDialogProps) {
     exportBrain.mutate(formData(), {
       onSuccess: (data) => {
         toast.success(t("store.exportSuccess", { name: displayName }))
-        // Trigger download
-        const blob = new Blob([JSON.stringify(data, null, 2)], {
+        // Trigger download — extract the .brain package (not the API wrapper)
+        const brainPackage = data.package ?? data
+        const blob = new Blob([JSON.stringify(brainPackage, null, 2)], {
           type: "application/json",
         })
         const url = URL.createObjectURL(blob)

@@ -280,6 +280,8 @@ class StoreHandler:
                 author=author,
                 tags=args.get("tags", []),
                 category=args.get("category", "general"),
+                version=args.get("version", "1.0.0"),
+                license_=args.get("license", "CC-BY-4.0"),
                 nmem_version=getattr(neural_memory, "__version__", ""),
             )
         except ValueError as e:

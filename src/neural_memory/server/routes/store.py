@@ -565,8 +565,8 @@ _ratings: dict[str, list[dict[str, Any]]] = {}
 async def rate_brain_package(req: BrainRatingRequest) -> BrainRatingResponse:
     """Submit a rating for a brain package.
 
-    Ratings are stored locally and will be synced to the
-    registry in Phase 2 (GitHub-based index).
+    Ratings are stored in-memory (local only). For persistent global
+    ratings, use the Hub API: POST /v1/store/rate/:name (requires API key).
     """
     entry = {
         "rating": req.rating,

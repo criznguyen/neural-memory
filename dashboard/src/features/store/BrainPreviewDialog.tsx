@@ -23,7 +23,6 @@ import { toast } from "sonner"
 
 interface BrainPreviewDialogProps {
   brainName: string | null
-  registryRepo?: string
   onClose: () => void
 }
 
@@ -40,7 +39,7 @@ export function BrainPreviewDialog({
 
   const handleImport = () => {
     if (!brainName) return
-    const url = `https://raw.githubusercontent.com/neural-memory/brain-store/main/brains/${brainName}/brain.json`
+    const url = `https://raw.githubusercontent.com/nhadaututtheky/brain-store/main/brains/${brainName}/brain.json`
     importMutation.mutate(url, {
       onSuccess: (data) => {
         toast.success(

@@ -199,12 +199,46 @@ class BrainRegistryClient:
     async def fetch_brain(self, name: str) -> dict[str, Any] | None:
         """Fetch a full brain package by name.
 
+        Tries Hub API first, falls back to GitHub raw.
         Returns None if not found or on error.
         """
         cached = self.cache.get_brain(name)
         if cached is not None:
             return cached
 
+        data = await self._fetch_brain_from_hub(name)
+        if data is None:
+            data = await self._fetch_brain_from_github(name)
+
+        if data is not None and isinstance(data, dict):
+            self.cache.set_brain(name, data)
+            return data
+
+        return None
+
+    async def _fetch_brain_from_hub(self, name: str) -> dict[str, Any] | None:
+        """Fetch a brain package from the Hub API."""
+        try:
+            import aiohttp
+
+            url = f"{self.hub_url}/v1/store/brain/{name}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    if resp.status == 404:
+                        return None
+                    if resp.status != 200:
+                        logger.debug("Hub brain fetch failed: HTTP %d for %s", resp.status, name)
+                        return None
+
+                    data: dict[str, Any] = await resp.json()
+                    return data if isinstance(data, dict) else None
+
+        except Exception as e:
+            logger.debug("Hub brain fetch error for %s: %s", name, e)
+            return None
+
+    async def _fetch_brain_from_github(self, name: str) -> dict[str, Any] | None:
+        """Fetch a brain package directly from GitHub raw (fallback)."""
         try:
             import aiohttp
 
@@ -214,20 +248,15 @@ class BrainRegistryClient:
                     if resp.status == 404:
                         return None
                     if resp.status != 200:
-                        logger.warning("Brain fetch failed: HTTP %d for %s", resp.status, name)
+                        logger.warning("GitHub brain fetch failed: HTTP %d for %s", resp.status, name)
                         return None
 
-                    data = await resp.json()
+                    data: dict[str, Any] = await resp.json()
+                    return data if isinstance(data, dict) else None
 
         except Exception as e:
-            logger.warning("Brain fetch error for %s: %s", name, e)
+            logger.warning("GitHub brain fetch error for %s: %s", name, e)
             return None
-
-        if isinstance(data, dict):
-            self.cache.set_brain(name, data)
-            return data
-
-        return None
 
     async def fetch_brain_from_url(self, url: str) -> dict[str, Any] | None:
         """Fetch a brain package from a validated HTTPS URL.
