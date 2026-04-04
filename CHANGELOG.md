@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.31.0] — 2026-04-05
+
+### Added
+
+- **Community Brain Publishing** — publish brains to the community store directly from Dashboard or MCP:
+  - GitHub-based distribution: brain packages stored in `nhadaututtheky/brain-store` repo (unlimited free storage)
+  - Hub thin proxy: creates GitHub PRs for publish, stores only ratings in D1 (minimal storage)
+  - GitHub Actions: validate brain packages (format + security scan) and auto-merge safe PRs
+  - Post-merge Action rebuilds `index.json` catalog automatically
+  - `BrainRegistryClient` upgraded: Hub API primary (includes ratings), GitHub raw fallback
+  - FastAPI `POST /api/dashboard/store/publish` endpoint with security scan gate
+  - MCP `nmem_store action="publish"` for agent-driven publishing
+  - ExportDialog: "Download .brain" + "Publish to Community" buttons with success confirmation
+  - Full EN + VI translations for publish flow
+
+### Fixed
+
+- **Hub security scan bypass** — packages without `scan_summary` are now rejected (previously passed through)
+- **Hub SSRF prevention** — `ghApi` no longer accepts arbitrary URLs, always prepends GitHub API base
+- **Hub orphan branch cleanup** — failed PR creation now deletes the orphan branch
+- **Hub offset/limit NaN** — non-numeric query params now fall back to defaults
+- **MCP export path restriction** — `output_path` now restricted to home directory or CWD
+- **Ratings GET validation** — `GET /ratings/:name` now validates brain name format
+- **Tool tier count** — updated 55→56 after adding `nmem_store`
+
 ## [4.30.1] — 2026-04-05
 
 ### Fixed
