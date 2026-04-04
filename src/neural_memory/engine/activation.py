@@ -10,11 +10,27 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from neural_memory.core.synapse import SYNAPSE_ROLES, SynapseRole
+
 if TYPE_CHECKING:
     from neural_memory.core.brain import BrainConfig
     from neural_memory.core.neuron import Neuron
     from neural_memory.core.synapse import Synapse
     from neural_memory.storage.base import NeuralStorage
+
+# Role-based activation multipliers for spread activation.
+# Semantic synapses (causal, sequential, reinforcement) conduct STRONGER
+# than baseline. Weak associative synapses (co_occurs) are slightly dampened.
+# STRUCTURAL and most types remain at 1.0 to preserve backward compatibility.
+_ROLE_MULTIPLIERS: dict[SynapseRole, float] = {
+    SynapseRole.SEQUENTIAL: 1.3,  # causal/sequential chains are high-signal
+    SynapseRole.REINFORCEMENT: 1.2,  # evidence strengthens retrieval
+    SynapseRole.SUPERSESSION: 1.1,  # newer info should surface
+    SynapseRole.STRUCTURAL: 1.0,  # standard traversal (baseline)
+    SynapseRole.WEAKENING: 0.9,  # counter-evidence slightly dampened
+    SynapseRole.LATERAL: 0.85,  # co_occurs/related — mild damping
+    SynapseRole.PASSIVE: 0.0,  # audit trail — skip entirely
+}
 
 logger = logging.getLogger(__name__)
 
@@ -339,8 +355,17 @@ class SpreadingActivation:
                 freq = freq_cache.get(neighbor_neuron.id, 0)
                 freq_factor = 1.0 + min(0.15, 0.05 * math.log1p(freq))
 
-                # Calculate new activation with frequency boost
-                new_level = current.level * decay_factor * synapse.weight * freq_factor
+                # Role-based multiplier: semantic synapses conduct stronger
+                syn_type = getattr(synapse, "type", None)
+                role = SYNAPSE_ROLES.get(syn_type, SynapseRole.STRUCTURAL) if syn_type else SynapseRole.STRUCTURAL
+                role_mult = _ROLE_MULTIPLIERS.get(role, 1.0)
+                if role_mult == 0.0:
+                    continue  # PASSIVE synapses skip entirely
+
+                # Calculate new activation with frequency boost + role weight
+                new_level = (
+                    current.level * decay_factor * synapse.weight * freq_factor * role_mult
+                )
 
                 # Skip if below threshold
                 if new_level < min_activation:

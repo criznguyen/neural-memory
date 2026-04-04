@@ -184,6 +184,73 @@ class TestSpreadingActivation:
 
         assert results == {}
 
+    @pytest.mark.asyncio
+    async def test_semantic_synapses_conduct_stronger(
+        self, config: BrainConfig
+    ) -> None:
+        """CAUSED_BY (SEQUENTIAL role) should conduct stronger than CO_OCCURS (LATERAL)."""
+        from neural_memory.core.brain import Brain
+
+        storage = InMemoryStorage()
+        brain = Brain.create(name="test_role", config=config)
+        await storage.save_brain(brain)
+        storage.set_brain(brain.id)
+
+        # A -> B via CAUSED_BY (sequential, 1.3x)
+        # A -> C via CO_OCCURS (lateral, 0.85x)
+        # Same base weight for fair comparison
+        neurons = [
+            Neuron.create(type=NeuronType.CONCEPT, content="A", neuron_id="a"),
+            Neuron.create(type=NeuronType.CONCEPT, content="B", neuron_id="b"),
+            Neuron.create(type=NeuronType.CONCEPT, content="C", neuron_id="c"),
+        ]
+        for n in neurons:
+            await storage.add_neuron(n)
+
+        synapses = [
+            Synapse.create("a", "b", SynapseType.CAUSED_BY, weight=0.5, synapse_id="ab"),
+            Synapse.create("a", "c", SynapseType.CO_OCCURS, weight=0.5, synapse_id="ac"),
+        ]
+        for s in synapses:
+            await storage.add_synapse(s)
+
+        activator = SpreadingActivation(storage, config)
+        results, _ = await activator.activate(["a"], decay_factor=0.5)
+
+        assert "b" in results
+        assert "c" in results
+        # CAUSED_BY (1.3x) should produce higher activation than CO_OCCURS (0.85x)
+        assert results["b"].activation_level > results["c"].activation_level
+
+    @pytest.mark.asyncio
+    async def test_passive_synapses_skipped(
+        self, config: BrainConfig
+    ) -> None:
+        """PASSIVE role synapses (ALIAS, HAPPENED_AT) should not conduct activation."""
+        from neural_memory.core.brain import Brain
+
+        storage = InMemoryStorage()
+        brain = Brain.create(name="test_passive", config=config)
+        await storage.save_brain(brain)
+        storage.set_brain(brain.id)
+
+        neurons = [
+            Neuron.create(type=NeuronType.CONCEPT, content="A", neuron_id="a"),
+            Neuron.create(type=NeuronType.CONCEPT, content="B", neuron_id="b"),
+        ]
+        for n in neurons:
+            await storage.add_neuron(n)
+
+        # ALIAS is PASSIVE role — should not spread
+        synapse = Synapse.create("a", "b", SynapseType.ALIAS, weight=0.9, synapse_id="ab")
+        await storage.add_synapse(synapse)
+
+        activator = SpreadingActivation(storage, config)
+        results, _ = await activator.activate(["a"], decay_factor=0.5)
+
+        # B should NOT be reached via PASSIVE synapse
+        assert "b" not in results
+
 
 class TestReflexActivation:
     """Tests for ReflexActivation class."""
@@ -534,9 +601,10 @@ class TestGenerationBasedVisited:
         results, _ = await sa.activate(["a"], decay_factor=0.5)
 
         # Verify basic graph traversal works correctly:
-        # a(1.0) -> b(1.0 * 0.5 * 0.8 = 0.4) -> c(0.4 * 0.5 * 0.7 = 0.14)
+        # RELATED_TO is LATERAL role (0.85 multiplier)
+        # a(1.0) -> b(1.0 * 0.5 * 0.8 * 0.85 = 0.34) -> c(0.34 * 0.5 * 0.8 * 0.85 ≈ 0.12)
         assert "a" in results
         assert "b" in results
-        assert abs(results["b"].activation_level - 0.4) < 0.05
+        assert abs(results["b"].activation_level - 0.34) < 0.05
         if "c" in results:
-            assert abs(results["c"].activation_level - 0.14) < 0.05
+            assert abs(results["c"].activation_level - 0.12) < 0.05
