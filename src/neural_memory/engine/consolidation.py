@@ -529,9 +529,18 @@ class ConsolidationEngine:
 
             # Weak associative synapses (CO_OCCURS, ALIAS) decay 3x faster
             # unless reinforced — prevents noise from dominating the graph
-            if synapse.type in (SynapseType.CO_OCCURS, SynapseType.ALIAS):
-                if synapse.reinforced_count < 3:
-                    decayed = decayed.decay(factor=0.33)
+            # Skip if already decayed above (inferred/dream/semantic) to avoid stacking
+            # Skip dedup ALIAS synapses — they are structural, not associative
+            is_dedup = synapse.metadata.get("_dedup", False)
+            if (
+                not is_inferred
+                and not is_dream
+                and not is_semantic
+                and not is_dedup
+                and synapse.type in (SynapseType.CO_OCCURS, SynapseType.ALIAS)
+                and synapse.reinforced_count < 3
+            ):
+                decayed = decayed.decay(factor=0.33)
 
             should_prune = decayed.weight < self._config.prune_weight_threshold
 

@@ -633,8 +633,8 @@ class RememberHandler:
                     {m.type.value for m in remaining_matches}
                 )
 
-        # Quality hint: warn about long content
-        if len(content) > 500:
+        # Quality hint: warn about long content (skip ephemeral — scratch notes are often long)
+        if len(content) > 500 and not is_ephemeral:
             response["quality_warning"] = (
                 f"Content is {len(content)} chars — long memories reduce recall precision. "
                 "Consider splitting into 2-3 focused memories."

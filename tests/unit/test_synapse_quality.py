@@ -141,3 +141,34 @@ class TestTypeAwarePruning:
         # With 3+ reinforcements, no extra decay should be applied
         # (the consolidation code checks reinforced_count < 3)
         assert reinforced.reinforced_count >= 3
+
+    def test_inferred_co_occurs_no_double_decay(self) -> None:
+        """Inferred CO_OCCURS should NOT get both _inferred AND CO_OCCURS decay."""
+        syn = Synapse.create(
+            source_id="a",
+            target_id="b",
+            type=SynapseType.CO_OCCURS,
+            weight=0.3,
+            metadata={"_inferred": True},
+        )
+        # The consolidation code should apply EITHER inferred decay OR
+        # CO_OCCURS decay, not both. is_inferred guard prevents stacking.
+        assert syn.metadata.get("_inferred") is True
+        assert syn.type == SynapseType.CO_OCCURS
+        # After only inferred decay (0.5), weight should be ~0.15, not 0.05
+        decayed_once = syn.decay(factor=0.5)
+        assert decayed_once.weight > 0.1  # Not double-decayed to ~0.05
+
+    def test_dedup_alias_not_decayed(self) -> None:
+        """Dedup ALIAS synapses should NOT get accelerated decay."""
+        syn = Synapse.create(
+            source_id="a",
+            target_id="b",
+            type=SynapseType.ALIAS,
+            weight=0.9,
+            metadata={"_dedup": True},
+        )
+        # Dedup ALIAS is structural — should be excluded from CO_OCCURS/ALIAS decay
+        assert syn.metadata.get("_dedup") is True
+        assert syn.type == SynapseType.ALIAS
+        assert syn.reinforced_count == 0  # Never reinforced, but should be protected

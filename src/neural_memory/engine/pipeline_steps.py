@@ -900,6 +900,12 @@ class CreateAnchorStep:
             ctx.effective_metadata["_original_length"] = len(ctx.content)
 
         if dedup_reused is not None:
+            # Remove truncation metadata from alias — original anchor has its own metadata
+            alias_metadata = {
+                k: v
+                for k, v in ctx.effective_metadata.items()
+                if k not in ("_content_truncated", "_original_length")
+            }
             anchor_neuron = dedup_reused
             # Create alias neuron pointing to existing anchor
             alias_neuron = Neuron.create(
@@ -909,7 +915,7 @@ class CreateAnchorStep:
                     "is_anchor": True,
                     "timestamp": ctx.timestamp.isoformat(),
                     "_dedup_alias_of": anchor_neuron.id,
-                    **ctx.effective_metadata,
+                    **alias_metadata,
                 },
                 content_hash=ctx.content_hash,
             )
