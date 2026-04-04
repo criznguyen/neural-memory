@@ -1,10 +1,14 @@
-"""Brain Store registry client — fetches and caches the brain catalog from GitHub.
+"""Brain Store registry client — browse, fetch, and publish community brains.
 
-The registry is a GitHub repository containing:
-- index.json: array of BrainPackageManifest dicts (no snapshot data)
-- brains/{name}/brain.json: full .brain packages
+Architecture:
+- **GitHub repo** stores brain packages (unlimited free storage)
+- **Hub API** proxies browse (with ratings) and publish (creates GitHub PRs)
+- **Fallback**: direct raw.githubusercontent.com if hub is down
 
-Distribution uses raw.githubusercontent.com for zero-auth, zero-cost access.
+Flow:
+  browse → Hub /v1/store/browse → returns index + ratings
+  fetch  → Hub /v1/store/brain/:name → proxies from GitHub raw
+  publish → Hub /v1/store/publish → creates PR to brain-store repo
 """
 
 from __future__ import annotations
@@ -18,8 +22,9 @@ logger = logging.getLogger(__name__)
 
 # ── Config ──────────────────────────────────────────────────────
 
-DEFAULT_REGISTRY_REPO = "neural-memory/brain-store"
+DEFAULT_REGISTRY_REPO = "nhadaututtheky/brain-store"
 DEFAULT_REGISTRY_BRANCH = "main"
+DEFAULT_HUB_URL = "https://neural-memory-sync-hub.congnguyenit.workers.dev"
 CACHE_TTL_SECONDS = 300  # 5 minutes
 MAX_INDEX_SIZE = 5 * 1024 * 1024  # 5MB max for index.json
 
@@ -85,19 +90,21 @@ class RegistryCache:
 
 
 class BrainRegistryClient:
-    """Client for the GitHub-based brain registry.
+    """Client for the community brain registry.
 
-    Fetches index.json and individual brain packages from
-    raw.githubusercontent.com with in-memory caching.
+    Primary: Hub API (browse with ratings, publish via GitHub PR).
+    Fallback: raw.githubusercontent.com (direct GitHub access).
     """
 
     def __init__(
         self,
         repo: str = DEFAULT_REGISTRY_REPO,
         branch: str = DEFAULT_REGISTRY_BRANCH,
+        hub_url: str = DEFAULT_HUB_URL,
     ) -> None:
         self.repo = repo
         self.branch = branch
+        self.hub_url = hub_url.rstrip("/")
         self.cache = RegistryCache()
 
     def _index_url(self) -> str:
@@ -113,14 +120,56 @@ class BrainRegistryClient:
     ) -> list[dict[str, Any]]:
         """Fetch the registry index (catalog of manifests).
 
+        Tries Hub API first (includes ratings), falls back to GitHub raw.
         Returns cached data if available and not expired.
-        Falls back to cached data on fetch errors.
         """
         if not force_refresh:
             cached = self.cache.get_index()
             if cached is not None:
                 return cached
 
+        # Try Hub API first (includes ratings data)
+        data = await self._fetch_index_from_hub()
+        if data is None:
+            # Fall back to GitHub raw
+            data = await self._fetch_index_from_github()
+
+        if data is None:
+            return self._fallback_index()
+
+        self.cache.set_index(data)
+        return data
+
+    async def _fetch_index_from_hub(self) -> list[dict[str, Any]] | None:
+        """Fetch index from Hub API (browse endpoint)."""
+        try:
+            import aiohttp
+
+            url = f"{self.hub_url}/v1/store/browse?limit=100"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status != 200:
+                        logger.debug("Hub browse failed: HTTP %d", resp.status)
+                        return None
+
+                    body = await resp.read()
+                    if len(body) > MAX_INDEX_SIZE:
+                        return None
+
+                    import json as _json
+
+                    result = _json.loads(body)
+
+            if isinstance(result, dict) and isinstance(result.get("brains"), list):
+                brains: list[dict[str, Any]] = result["brains"]
+                return brains
+        except Exception as e:
+            logger.debug("Hub browse error: %s", e)
+
+        return None
+
+    async def _fetch_index_from_github(self) -> list[dict[str, Any]] | None:
+        """Fetch index.json directly from GitHub raw (fallback)."""
         try:
             import aiohttp
 
@@ -128,29 +177,24 @@ class BrainRegistryClient:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                     if resp.status != 200:
-                        logger.warning("Registry fetch failed: HTTP %d from %s", resp.status, url)
-                        return self._fallback_index()
+                        logger.warning("GitHub index fetch failed: HTTP %d", resp.status)
+                        return None
 
-                    # Read body with size limit (don't trust Content-Length)
                     body = await resp.read()
                     if len(body) > MAX_INDEX_SIZE:
-                        logger.warning("Registry index too large: %d bytes", len(body))
-                        return self._fallback_index()
+                        logger.warning("GitHub index too large: %d bytes", len(body))
+                        return None
 
                     import json as _json
 
                     data = _json.loads(body)
 
+            if isinstance(data, list):
+                return data
         except Exception as e:
-            logger.warning("Registry fetch error: %s", e)
-            return self._fallback_index()
+            logger.warning("GitHub index fetch error: %s", e)
 
-        if not isinstance(data, list):
-            logger.warning("Registry index is not a list")
-            return self._fallback_index()
-
-        self.cache.set_index(data)
-        return data
+        return None
 
     async def fetch_brain(self, name: str) -> dict[str, Any] | None:
         """Fetch a full brain package by name.
@@ -236,6 +280,56 @@ class BrainRegistryClient:
             return None
 
         return data if isinstance(data, dict) else None
+
+    async def publish_brain(
+        self,
+        package: dict[str, Any],
+        api_key: str,
+    ) -> dict[str, Any]:
+        """Publish a brain package to the community store via Hub.
+
+        The Hub creates a PR to the brain-store GitHub repo.
+
+        Args:
+            package: The full .brain package dict (manifest + snapshot).
+            api_key: Neural Memory API key for authentication.
+
+        Returns:
+            Response dict with status, PR URL, etc.
+
+        Raises:
+            ValueError: If publishing fails.
+        """
+        import json as _json
+
+        import aiohttp
+
+        url = f"{self.hub_url}/v1/store/publish"
+        body = _json.dumps(package, default=str, ensure_ascii=False)
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url,
+                    data=body,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {api_key}",
+                    },
+                    timeout=aiohttp.ClientTimeout(total=60),
+                ) as resp:
+                    result: dict[str, Any] = await resp.json()
+
+                    if resp.status == 201:
+                        # Invalidate cache so next browse shows new brain
+                        self.cache.clear()
+                        return result
+
+                    error_msg: str = result.get("error", "Publishing failed")
+                    raise ValueError(f"Publish failed ({resp.status}): {error_msg}")
+
+        except aiohttp.ClientError as e:
+            raise ValueError(f"Connection error: {e}") from e
 
     def _fallback_index(self) -> list[dict[str, Any]]:
         """Return stale cache or empty list on errors."""

@@ -100,3 +100,28 @@ export function useRateBrain() {
       api.post<StoreRatingResponse>("/api/dashboard/store/rate", data),
   })
 }
+
+export interface PublishResponse {
+  status: string
+  name: string
+  display_name: string
+  pr_number: number
+  pr_url: string
+  message: string
+}
+
+export function usePublishBrain() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: {
+      display_name: string
+      description: string
+      author: string
+      category: string
+      tags: string[]
+    }) => api.post<PublishResponse>("/api/dashboard/store/publish", data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["store", "registry"] })
+    },
+  })
+}

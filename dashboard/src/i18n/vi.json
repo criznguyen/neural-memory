@@ -427,7 +427,16 @@
     "tags": "Thẻ",
     "tagsHint": "Phân cách bằng dấu phẩy (vd: python, coding, best-practices)",
     "uploadBrain": "Nhập file .brain",
-    "exportSecurityNote": "Brain sẽ được quét nội dung nhạy cảm trước khi xuất. Nội dung có rủi ro cao sẽ bị chặn."
+    "exportSecurityNote": "Brain sẽ được quét nội dung nhạy cảm trước khi xuất. Nội dung có rủi ro cao sẽ bị chặn.",
+    "downloadFile": "Tải file .brain",
+    "publishToCommunity": "Đăng lên cộng đồng",
+    "publishing": "Đang đăng...",
+    "publishSuccess": "\"{{name}}\" đã gửi lên cửa hàng cộng đồng!",
+    "publishError": "Đăng brain thất bại",
+    "publishedTitle": "Đã gửi Brain!",
+    "publishedDesc": "Brain của bạn đã được gửi để xét duyệt. Nó sẽ xuất hiện trong cửa hàng cộng đồng sau khi được duyệt.",
+    "viewPR": "Xem bài gửi trên GitHub",
+    "done": "Xong"
   },
   "upgrade": {
     "title": "Nâng cấp Neural Memory Pro",

@@ -1983,9 +1983,10 @@ _ALL_TOOL_SCHEMAS: list[dict[str, Any]] = [
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["browse", "preview", "import", "export"],
+                    "enum": ["browse", "preview", "import", "export", "publish"],
                     "description": "browse=search community brain registry, preview=view brain details before import, "
-                    "import=download and import a brain, export=export current brain as .brain package",
+                    "import=download and import a brain, export=export current brain as .brain file, "
+                    "publish=export and publish brain to community store (requires API key)",
                 },
                 "brain_name": {
                     "type": "string",

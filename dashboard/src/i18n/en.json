@@ -427,7 +427,16 @@
     "tags": "Tags",
     "tagsHint": "Comma-separated (e.g. python, coding, best-practices)",
     "uploadBrain": "Import .brain file",
-    "exportSecurityNote": "Your brain will be scanned for sensitive content before export. High-risk content will be blocked."
+    "exportSecurityNote": "Your brain will be scanned for sensitive content before export. High-risk content will be blocked.",
+    "downloadFile": "Download .brain",
+    "publishToCommunity": "Publish to Community",
+    "publishing": "Publishing...",
+    "publishSuccess": "\"{{name}}\" submitted to the community store!",
+    "publishError": "Failed to publish brain",
+    "publishedTitle": "Brain Submitted!",
+    "publishedDesc": "Your brain has been submitted for review. It will appear in the community store after validation.",
+    "viewPR": "View submission on GitHub",
+    "done": "Done"
   },
   "upgrade": {
     "title": "Get Neural Memory Pro",

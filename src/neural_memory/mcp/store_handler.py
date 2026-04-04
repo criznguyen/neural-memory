@@ -51,6 +51,8 @@ class StoreHandler:
                 return await self._store_import(args)
             if action == "export":
                 return await self._store_export(args)
+            if action == "publish":
+                return await self._store_publish(args)
             return {"error": f"Unknown store action: {action}"}
         except Exception as e:
             logger.error("Store %s failed: %s", action, e)
@@ -216,6 +218,12 @@ class StoreHandler:
         output_path = args.get("output_path")
         if output_path:
             path = Path(output_path).resolve()
+            # Restrict to user's home directory or current working directory
+            home = Path.home().resolve()
+            cwd = Path.cwd().resolve()
+            if not (path.is_relative_to(home) or path.is_relative_to(cwd)):
+                return {"error": "output_path must be within home directory or current working directory"}
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(
                 json.dumps(package, default=str, ensure_ascii=False, indent=2),
                 encoding="utf-8",
@@ -241,5 +249,63 @@ class StoreHandler:
                 "size_tier": manifest.get("size_tier", ""),
                 "content_hash": manifest.get("content_hash", ""),
             },
-            "hint": "Use output_path to save the .brain file to disk",
+            "hint": "Use output_path to save the .brain file to disk, or action='publish' to share with the community",
+        }
+
+    async def _store_publish(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Publish the current brain to the community store."""
+        display_name = args.get("display_name")
+        if not display_name:
+            return {"error": "display_name is required"}
+
+        description = args.get("description", "")
+        if not description:
+            return {"error": "description is required"}
+
+        author = args.get("author", "anonymous")
+
+        storage = await self.get_storage()
+        brain_id = _require_brain_id(storage)
+        snapshot = await storage.export_brain(brain_id)
+
+        import neural_memory
+
+        try:
+            package = create_brain_package(
+                snapshot,
+                display_name=display_name,
+                description=description,
+                author=author,
+                tags=args.get("tags", []),
+                category=args.get("category", "general"),
+                nmem_version=getattr(neural_memory, "__version__", ""),
+            )
+        except ValueError as e:
+            return {"error": str(e)}
+
+        # Security scan
+        scan_result = scan_brain_package(package)
+        if scan_result.risk_level in ("high", "critical"):
+            return {
+                "error": "Brain failed security scan — cannot publish",
+                "risk_level": scan_result.risk_level,
+                "findings": [f.description for f in scan_result.findings[:5]],
+            }
+
+        # Get API key
+        api_key = getattr(self.config, "api_key", "") or ""
+        if not api_key:
+            return {"error": "API key required for publishing. Set with: nmem config set api_key YOUR_KEY"}
+
+        try:
+            result = await _registry.publish_brain(package, api_key)
+        except ValueError as e:
+            return {"error": str(e)}
+
+        return {
+            "status": "published",
+            "name": result.get("name", ""),
+            "display_name": display_name,
+            "pr_url": result.get("pr_url", ""),
+            "message": result.get("message", "Brain submitted for review"),
         }

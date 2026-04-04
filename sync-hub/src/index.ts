@@ -16,6 +16,7 @@ import health from "./routes/health.js";
 import auth from "./routes/auth.js";
 import activate from "./routes/activate.js";
 import license from "./routes/license.js";
+import store from "./routes/store.js";
 import { requireAuth } from "./middleware/auth.js";
 import { attachLicense } from "./middleware/license.js";
 import { handleError } from "./errors.js";
@@ -46,6 +47,13 @@ app.onError((err, c) => {
 // --- Public routes ---
 app.route("/v1/health", health);
 app.route("/v1/auth", auth);
+
+// --- Brain Store ---
+// Public: browse, brain/:name, ratings/:name (no auth)
+// Protected: publish, rate (auth required, applied in store routes)
+app.use("/v1/store/publish", requireAuth);
+app.use("/v1/store/rate/*", requireAuth);
+app.route("/v1/store", store);
 
 // --- Protected routes (require API key + license check) ---
 app.use("/v1/hub/*", requireAuth);

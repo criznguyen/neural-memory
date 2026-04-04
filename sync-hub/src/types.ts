@@ -105,6 +105,7 @@ export interface AuthContext {
 export interface Env {
   SYNC_DB: D1Database;
   XLABS_API_KEY: string;
+  GITHUB_BOT_TOKEN: string; // For Brain Store publish (creates PRs)
   // BRAIN_SNAPSHOTS: R2Bucket;  // Phase 1 placeholder
   // RATE_LIMITS: KVNamespace;   // Phase 2
 }

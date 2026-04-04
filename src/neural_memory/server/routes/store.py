@@ -163,6 +163,100 @@ async def export_brain_package(
     )
 
 
+# ── Publish ──────────────────────────────────────────────────────
+
+
+class StorePublishRequest(BaseModel):
+    """Request to publish a brain to the community store."""
+
+    display_name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(..., min_length=1, max_length=1000)
+    author: str = Field(..., min_length=1, max_length=100)
+    name: str | None = Field(None, max_length=64)
+    version: str = Field("1.0.0", max_length=20)
+    license_: str = Field("CC-BY-4.0", alias="license", max_length=50)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    category: str = Field("general", max_length=30)
+
+
+@router.post("/publish")
+async def publish_brain_package(
+    req: StorePublishRequest,
+    storage: Annotated[Any, Depends(get_storage)],
+) -> JSONResponse:
+    """Export and publish the active brain to the community store.
+
+    Exports the brain, scans it, and submits a PR to the brain-store repo.
+    """
+    try:
+        brain_id = storage.brain_id
+        if not brain_id:
+            raise HTTPException(status_code=400, detail="No active brain selected")
+        snapshot = await storage.export_brain(brain_id)
+    except Exception as e:
+        logger.error("Failed to export brain for publish: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to export brain") from e
+
+    try:
+        import neural_memory
+
+        package = create_brain_package(
+            snapshot,
+            display_name=req.display_name,
+            description=req.description,
+            author=req.author,
+            name=req.name,
+            version=req.version,
+            license_=req.license_,
+            tags=req.tags,
+            category=req.category,
+            nmem_version=getattr(neural_memory, "__version__", ""),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    # Security scan — block high/critical
+    scan_result = scan_brain_package(package)
+    if scan_result.risk_level in ("high", "critical"):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "Brain failed security scan — cannot publish",
+                "risk_level": scan_result.risk_level,
+                "findings": [
+                    {"severity": f.severity, "description": f.description}
+                    for f in scan_result.findings[:10]
+                ],
+            },
+        )
+
+    # Get API key from config for hub auth
+    try:
+        from neural_memory.unified_config import UnifiedConfig
+
+        config = UnifiedConfig.load()
+        api_key = getattr(config, "api_key", "") or ""
+    except Exception:
+        api_key = ""
+
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="API key required for publishing. Set it with: nmem config set api_key YOUR_KEY",
+        )
+
+    # Publish via registry client
+    try:
+        result = await _registry_client.publish_brain(package, api_key)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    return JSONResponse(
+        content=result,
+        status_code=201,
+    )
+
+
 # ── Import ────────────────────────────────────────────────────────
 
 
