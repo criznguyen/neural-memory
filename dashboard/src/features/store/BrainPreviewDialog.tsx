@@ -116,14 +116,14 @@ export function BrainPreviewDialog({
           <p className="text-sm text-muted-foreground">{preview.manifest.description}</p>
 
           {/* Scan Warnings */}
-          {preview.scan_result.findings.length > 0 && (
+          {(preview.scan_result.findings?.length ?? 0) > 0 && (
             <div className="mt-3 rounded-lg border border-health-warn/30 bg-health-warn/5 p-3">
               <p className="text-xs font-semibold text-health-warn inline-flex items-center gap-1.5 mb-2">
                 <Warning className="size-3.5" aria-hidden="true" />
                 {t("store.scanWarnings", { count: preview.scan_result.finding_count })}
               </p>
               <ul className="space-y-1">
-                {preview.scan_result.findings.slice(0, 5).map((f, i) => (
+                {(preview.scan_result.findings ?? []).slice(0, 5).map((f, i) => (
                   <li key={i} className="text-xs text-muted-foreground">
                     <Badge
                       variant={f.severity === "high" ? "destructive" : "outline"}
@@ -215,7 +215,7 @@ export function BrainPreviewDialog({
             </span>
             <span className="inline-flex items-center gap-1">
               <Hash className="size-3" aria-hidden="true" />
-              {preview.manifest.content_hash.slice(0, 15)}...
+              {preview.manifest.content_hash?.slice(0, 15) ?? "—"}...
             </span>
             <span>
               {(preview.manifest.size_bytes / 1024).toFixed(1)} KB
@@ -254,6 +254,7 @@ export function BrainPreviewDialog({
               size="sm"
               onClick={handleImport}
               disabled={importMutation.isPending || !preview.scan_result.safe}
+              title={!preview.scan_result.safe ? "Import blocked — brain failed security scan" : undefined}
             >
               {importMutation.isPending ? (
                 <span className="inline-flex items-center gap-1.5">

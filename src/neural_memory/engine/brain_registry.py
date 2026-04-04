@@ -131,12 +131,15 @@ class BrainRegistryClient:
                         logger.warning("Registry fetch failed: HTTP %d from %s", resp.status, url)
                         return self._fallback_index()
 
-                    content_length = resp.content_length or 0
-                    if content_length > MAX_INDEX_SIZE:
-                        logger.warning("Registry index too large: %d bytes", content_length)
+                    # Read body with size limit (don't trust Content-Length)
+                    body = await resp.read()
+                    if len(body) > MAX_INDEX_SIZE:
+                        logger.warning("Registry index too large: %d bytes", len(body))
                         return self._fallback_index()
 
-                    data = await resp.json()
+                    import json as _json
+
+                    data = _json.loads(body)
 
         except Exception as e:
             logger.warning("Registry fetch error: %s", e)
@@ -183,10 +186,32 @@ class BrainRegistryClient:
         return None
 
     async def fetch_brain_from_url(self, url: str) -> dict[str, Any] | None:
-        """Fetch a brain package from an arbitrary URL.
+        """Fetch a brain package from a validated HTTPS URL.
 
-        Used for importing brains from direct URLs (not just the registry).
+        Only allows HTTPS scheme and blocks private/loopback IPs to prevent SSRF.
         """
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        if parsed.scheme != "https":
+            logger.warning("Rejected non-HTTPS brain URL: %s", parsed.scheme)
+            return None
+
+        hostname = parsed.hostname or ""
+        if not hostname:
+            return None
+
+        # Block private/loopback/link-local IPs
+        import ipaddress
+
+        try:
+            addr = ipaddress.ip_address(hostname)
+            if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+                logger.warning("Rejected private/loopback brain URL: %s", hostname)
+                return None
+        except ValueError:
+            pass  # hostname is a domain name, not an IP — OK
+
         try:
             import aiohttp
 
@@ -196,7 +221,15 @@ class BrainRegistryClient:
                         logger.warning("Brain URL fetch failed: HTTP %d from %s", resp.status, url)
                         return None
 
-                    data = await resp.json()
+                    # Enforce body size limit before deserialization
+                    body = await resp.read()
+                    if len(body) > MAX_INDEX_SIZE:
+                        logger.warning("Remote brain too large: %d bytes", len(body))
+                        return None
+
+                    import json as _json
+
+                    data = _json.loads(body)
 
         except Exception as e:
             logger.warning("Brain URL fetch error: %s", e)

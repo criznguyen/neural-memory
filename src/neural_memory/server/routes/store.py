@@ -305,7 +305,7 @@ class RegistryBrowseResponse(BaseModel):
 class RemoteImportRequest(BaseModel):
     """Request to import a brain from a remote URL."""
 
-    source_url: str = Field(..., min_length=1)
+    source_url: str = Field(..., min_length=1, max_length=2048, pattern=r"^https://")
 
 
 @router.get("/registry")
@@ -341,7 +341,9 @@ async def browse_registry(
 
 
 @router.get("/registry/preview/{brain_name}")
-async def preview_registry_brain(brain_name: str) -> BrainPreviewResponse:
+async def preview_registry_brain(
+    brain_name: Annotated[str, Path(min_length=1, max_length=64, pattern=r"^[\w-]+$")],
+) -> BrainPreviewResponse:
     """Preview a brain from the registry without importing.
 
     Fetches the full brain package from GitHub and returns
@@ -349,7 +351,7 @@ async def preview_registry_brain(brain_name: str) -> BrainPreviewResponse:
     """
     data = await _registry_client.fetch_brain(brain_name)
     if data is None:
-        raise HTTPException(status_code=404, detail=f"Brain '{brain_name}' not found in registry")
+        raise HTTPException(status_code=404, detail="Brain not found in registry")
 
     preview = preview_brain_package(data)
 

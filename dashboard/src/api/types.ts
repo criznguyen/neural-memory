@@ -502,7 +502,7 @@ export interface BrainPreview {
     safe: boolean
     risk_level: string
     finding_count: number
-    findings: ScanFinding[]
+    findings?: ScanFinding[]
   }
 }
 
