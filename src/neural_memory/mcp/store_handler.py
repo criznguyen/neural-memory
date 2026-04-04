@@ -222,7 +222,9 @@ class StoreHandler:
             home = Path.home().resolve()
             cwd = Path.cwd().resolve()
             if not (path.is_relative_to(home) or path.is_relative_to(cwd)):
-                return {"error": "output_path must be within home directory or current working directory"}
+                return {
+                    "error": "output_path must be within home directory or current working directory"
+                }
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(
                 json.dumps(package, default=str, ensure_ascii=False, indent=2),
@@ -295,7 +297,9 @@ class StoreHandler:
         # Get API key
         api_key = getattr(self.config, "api_key", "") or ""
         if not api_key:
-            return {"error": "API key required for publishing. Set with: nmem config set api_key YOUR_KEY"}
+            return {
+                "error": "API key required for publishing. Set with: nmem config set api_key YOUR_KEY"
+            }
 
         try:
             result = await _registry.publish_brain(package, api_key)
