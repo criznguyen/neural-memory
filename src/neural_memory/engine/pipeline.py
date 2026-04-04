@@ -67,6 +67,11 @@ class PipelineContext:
     merged_tags: set[str] = field(default_factory=set)
     effective_metadata: dict[str, Any] = field(default_factory=dict)
 
+    # Existing neurons found during extraction — used by relation extraction
+    # to match spans, but NOT used for synapse creation (avoids duplicate synapses)
+    existing_entity_neurons: list[Neuron] = field(default_factory=list)
+    existing_concept_neurons: list[Neuron] = field(default_factory=list)
+
     # Deferred entity refs for lazy promotion (B7)
     # Entities stored here are first-mentions — not yet promoted to neurons
     deferred_entity_refs: list[str] = field(default_factory=list)

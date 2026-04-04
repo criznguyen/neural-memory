@@ -527,6 +527,12 @@ class ConsolidationEngine:
             if is_semantic and synapse.reinforced_count < 2:
                 decayed = decayed.decay(factor=0.5)
 
+            # Weak associative synapses (CO_OCCURS, ALIAS) decay 3x faster
+            # unless reinforced — prevents noise from dominating the graph
+            if synapse.type in (SynapseType.CO_OCCURS, SynapseType.ALIAS):
+                if synapse.reinforced_count < 3:
+                    decayed = decayed.decay(factor=0.33)
+
             should_prune = decayed.weight < self._config.prune_weight_threshold
 
             # Check inactivity

@@ -75,19 +75,48 @@ def _entity_type_to_neuron_type(entity_type: EntityType) -> NeuronType:
 
 
 def _match_span_to_neuron(span: str, neurons: list[Neuron]) -> Neuron | None:
-    """Match a text span to the best-matching neuron by content overlap."""
+    """Match a text span to the best-matching neuron by content overlap.
+
+    Uses two strategies:
+    1. Substring containment (original) — high precision
+    2. Word overlap (Jaccard) — catches partial matches like "auth bug" → "auth"
+    """
     span_lower = span.lower().strip()
+    span_words = set(span_lower.split())
     best_match: Neuron | None = None
     best_score: float = 0.0
 
     for neuron in neurons:
         neuron_lower = neuron.content.lower()
+        score = 0.0
+
+        # Strategy 1: substring containment (high confidence)
         if neuron_lower in span_lower or span_lower in neuron_lower:
             score = len(neuron_lower) / max(len(span_lower), 1)
-            if score > best_score:
-                best_score = score
-                best_match = neuron
+            # Boost exact or near-exact matches
+            if neuron_lower == span_lower:
+                score = 2.0
 
+        # Strategy 2: word overlap (catches partial matches)
+        if score == 0.0:
+            neuron_words = set(neuron_lower.split())
+            overlap = span_words & neuron_words
+            if overlap:
+                # Jaccard-like: overlap / union, weighted by neuron coverage
+                neuron_coverage = len(overlap) / max(len(neuron_words), 1)
+                span_coverage = len(overlap) / max(len(span_words), 1)
+                score = (neuron_coverage + span_coverage) / 2
+                # Require at least 50% of neuron words matched
+                if neuron_coverage < 0.5:
+                    score = 0.0
+
+        if score > best_score:
+            best_score = score
+            best_match = neuron
+
+    # Require minimum score to avoid spurious matches
+    if best_score < 0.15:
+        return None
     return best_match
 
 
@@ -185,6 +214,8 @@ class ExtractEntityNeuronsStep:
             neuron_type = _entity_type_to_neuron_type(entity.type)
             existing = await _find_similar_entity(storage, entity.text)
             if existing:
+                # Track for relation extraction only (not for synapse creation)
+                ctx.existing_entity_neurons.append(existing)
                 continue
 
             # Exceptions: always promote high-confidence or user-tagged entities
@@ -288,6 +319,8 @@ class ExtractConceptNeuronsStep:
 
         for keyword in valid_keywords:
             if keyword in existing_map:
+                # Track for relation extraction only (not for synapse creation)
+                ctx.existing_concept_neurons.append(existing_map[keyword])
                 continue
             neuron = Neuron.create(type=NeuronType.CONCEPT, content=keyword)
             await storage.add_neuron(neuron)
@@ -849,12 +882,29 @@ class CreateAnchorStep:
     ) -> PipelineContext:
         dedup_reused = ctx.effective_metadata.pop("_dedup_reused_anchor", None)
 
+        # Quality gate: cap anchor neuron content for clean recall
+        # Full content remains in ctx.content for entity/relation extraction
+        max_anchor_len = 500
+        anchor_content = ctx.content
+        if len(anchor_content) > max_anchor_len:
+            # Truncate at last sentence boundary within limit
+            truncated = anchor_content[:max_anchor_len]
+            last_period = truncated.rfind(".")
+            last_newline = truncated.rfind("\n")
+            cut_point = max(last_period, last_newline)
+            if cut_point > max_anchor_len // 2:
+                anchor_content = truncated[: cut_point + 1].rstrip()
+            else:
+                anchor_content = truncated.rstrip()
+            ctx.effective_metadata["_content_truncated"] = True
+            ctx.effective_metadata["_original_length"] = len(ctx.content)
+
         if dedup_reused is not None:
             anchor_neuron = dedup_reused
             # Create alias neuron pointing to existing anchor
             alias_neuron = Neuron.create(
                 type=NeuronType.CONCEPT,
-                content=ctx.content,
+                content=anchor_content,
                 metadata={
                     "is_anchor": True,
                     "timestamp": ctx.timestamp.isoformat(),
@@ -888,7 +938,7 @@ class CreateAnchorStep:
 
             anchor_neuron = Neuron.create(
                 type=NeuronType.CONCEPT,
-                content=ctx.content,
+                content=anchor_content,
                 metadata={
                     "is_anchor": True,
                     "timestamp": ctx.timestamp.isoformat(),
@@ -1110,7 +1160,7 @@ class CoOccurrenceStep:
                         source_id=neuron_a.id,
                         target_id=neuron_b.id,
                         type=SynapseType.CO_OCCURS,
-                        weight=0.5,
+                        weight=0.3,
                     )
                 )
 
@@ -1213,7 +1263,13 @@ class RelationExtractionStep:
     ) -> PipelineContext:
         assert ctx.anchor_neuron is not None
         relations = self.relation_extractor.extract(ctx.content, language=ctx.language)
-        all_extracted = ctx.entity_neurons + ctx.concept_neurons
+        # Include both new AND existing neurons for span matching
+        all_extracted = (
+            ctx.entity_neurons
+            + ctx.concept_neurons
+            + ctx.existing_entity_neurons
+            + ctx.existing_concept_neurons
+        )
 
         if len(all_extracted) < 2:
             return ctx
