@@ -216,12 +216,13 @@ class BrainOpsMixin:
         self.set_brain(brain_id)
 
         try:
-            await self.save_brain(brain)
-            await self._import_neurons(snapshot.neurons)
-            await self._import_synapses(snapshot.synapses)
-            await self._import_fibers(snapshot.fibers)
-            await self._import_projects(snapshot.metadata.get("projects", []))
-            await self._import_typed_memories(snapshot.metadata.get("typed_memories", []))
+            async with self._dialect.transaction():
+                await self.save_brain(brain)
+                await self._import_neurons(snapshot.neurons)
+                await self._import_synapses(snapshot.synapses)
+                await self._import_fibers(snapshot.fibers)
+                await self._import_projects(snapshot.metadata.get("projects", []))
+                await self._import_typed_memories(snapshot.metadata.get("typed_memories", []))
         finally:
             if old_brain_id is not None:
                 self.set_brain(old_brain_id)

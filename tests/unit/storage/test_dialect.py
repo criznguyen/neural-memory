@@ -145,7 +145,7 @@ class TestPostgresDialectPlaceholders:
     def test_in_clause(self):
         d = PostgresDialect()
         sql, params = d.in_clause(1, ["a", "b", "c"])
-        assert sql == "= ANY($1::text[])"
+        assert sql == "= ANY($1)"
         assert params == [["a", "b", "c"]]
 
 

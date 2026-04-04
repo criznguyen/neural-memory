@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
@@ -102,54 +103,89 @@ class PostgresDialect(Dialect):
         return self._pool
 
     # ------------------------------------------------------------------
-    # Query execution
+    # Query execution (transaction-aware: uses _txn_conn when inside
+    # a transaction() block, otherwise acquires from pool per call)
     # ------------------------------------------------------------------
 
+    def _get_conn_or_none(self) -> Any:
+        """Return the transaction connection if inside a transaction, else None."""
+        return getattr(self, "_txn_conn", None)
+
     async def execute(self, sql: str, params: Sequence[Any] = ()) -> str:
+        conn = self._get_conn_or_none()
+        if conn is not None:
+            result = await conn.execute(sql, *params)
+            return result or ""
         pool = self._ensure_pool()
         async with pool.acquire() as conn:
             result = await conn.execute(sql, *params)
             return result or ""
 
     async def fetch_all(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+        conn = self._get_conn_or_none()
+        if conn is not None:
+            rows = await conn.fetch(sql, *params)
+            return [dict(r) for r in rows]
         pool = self._ensure_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(sql, *params)
             return [dict(r) for r in rows]
 
     async def fetch_one(self, sql: str, params: Sequence[Any] = ()) -> dict[str, Any] | None:
+        conn = self._get_conn_or_none()
+        if conn is not None:
+            row = await conn.fetchrow(sql, *params)
+            return dict(row) if row else None
         pool = self._ensure_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(sql, *params)
             return dict(row) if row else None
 
     async def execute_many(self, sql: str, args_list: Sequence[Sequence[Any]]) -> None:
+        conn = self._get_conn_or_none()
+        if conn is not None:
+            await conn.executemany(sql, [tuple(a) for a in args_list])
+            return
         pool = self._ensure_pool()
         async with pool.acquire() as conn:
             await conn.executemany(sql, [tuple(a) for a in args_list])
 
     async def execute_script(self, sql: str) -> None:
+        conn = self._get_conn_or_none()
+        if conn is not None:
+            await conn.execute(sql)
+            return
         pool = self._ensure_pool()
         async with pool.acquire() as conn:
             await conn.execute(sql)
 
     async def execute_count(self, sql: str, params: Sequence[Any] = ()) -> int:
-        pool = self._ensure_pool()
-        async with pool.acquire() as conn:
+        conn = self._get_conn_or_none()
+        if conn is not None:
             result = await conn.execute(sql, *params)
-            try:
-                return int(result.split()[-1])
-            except (ValueError, IndexError):
-                return 0
+        else:
+            pool = self._ensure_pool()
+            async with pool.acquire() as conn:
+                result = await conn.execute(sql, *params)
+        try:
+            return int(result.split()[-1])
+        except (ValueError, IndexError):
+            return 0
 
     async def execute_returning_count(self, sql: str, params: Sequence[Any] = ()) -> int:
-        # PostgreSQL doesn't support SELECT changes() after a separate statement.
-        # For INSERT...SELECT we run the query and use a RETURNING clause if needed.
-        # For simplicity, just execute the query and return 0 (informational only).
-        pool = self._ensure_pool()
-        async with pool.acquire() as conn:
-            await conn.execute(sql, *params)
-        return 0
+        conn = self._get_conn_or_none()
+        if conn is not None:
+            result = await conn.execute(sql, *params)
+        else:
+            pool = self._ensure_pool()
+            async with pool.acquire() as conn:
+                result = await conn.execute(sql, *params)
+        # asyncpg returns status strings like "INSERT 0 1", "UPDATE 3",
+        # "DELETE 5". The last token is the affected row count.
+        try:
+            return int(result.split()[-1])
+        except (ValueError, IndexError):
+            return 0
 
     # ------------------------------------------------------------------
     # Placeholder generation
@@ -162,8 +198,9 @@ class PostgresDialect(Dialect):
         return ", ".join(f"${i}" for i in range(start, start + count))
 
     def in_clause(self, param_start: int, values: Sequence[Any]) -> tuple[str, list[Any]]:
-        # PostgreSQL uses ANY with an array parameter
-        return f"= ANY(${param_start}::text[])", [list(values)]
+        # PostgreSQL uses ANY with an array parameter.
+        # Let asyncpg infer the array type instead of hardcoding ::text[].
+        return f"= ANY(${param_start})", [list(values)]
 
     # ------------------------------------------------------------------
     # SQL generation helpers
@@ -247,6 +284,56 @@ class PostgresDialect(Dialect):
                 return value.replace(tzinfo=UTC)
             return value
         return datetime.fromisoformat(str(value))
+
+    # ------------------------------------------------------------------
+    # Transaction support
+    # ------------------------------------------------------------------
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[None]:
+        """Atomic transaction using a dedicated connection from the pool."""
+        pool = self._ensure_pool()
+        conn = await pool.acquire()
+        txn = conn.transaction()
+        await txn.start()
+        # Temporarily stash the transaction connection so that execute
+        # methods called inside the block can use it.  Since neural-memory
+        # is single-writer async, this is safe.
+        prev_txn_conn = getattr(self, "_txn_conn", None)
+        self._txn_conn = conn
+        try:
+            yield
+            await txn.commit()
+        except Exception:
+            await txn.rollback()
+            raise
+        finally:
+            self._txn_conn = prev_txn_conn
+            await pool.release(conn)
+
+    # ------------------------------------------------------------------
+    # Schema DDL
+    # ------------------------------------------------------------------
+
+    def get_schema_ddl(self) -> str:
+        """Return PostgreSQL-compatible DDL for all schema tables.
+
+        Converts the SQLite SCHEMA by replacing SQLite-specific syntax
+        with PostgreSQL equivalents.
+        """
+        from neural_memory.storage.sqlite_schema import SCHEMA
+
+        ddl = SCHEMA
+        # Replace SQLite AUTOINCREMENT with PostgreSQL SERIAL
+        ddl = ddl.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
+        # Remove SQLite-specific pragmas (they appear as comments or
+        # standalone statements that PG would reject).  The SCHEMA
+        # constant does not contain pragmas (those are in initialize()),
+        # but guard against future additions.
+        import re
+
+        ddl = re.sub(r"PRAGMA\s+[^;]+;", "", ddl)
+        return ddl
 
     # ------------------------------------------------------------------
     # Schema helpers (override for PostgreSQL types)

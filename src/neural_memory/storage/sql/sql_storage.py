@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 
 from neural_memory.storage.base import NeuralStorage
+from neural_memory.storage.neuron_cache import NeuronLookupCache
 from neural_memory.storage.sql.dialect import Dialect
 
 # -- Domain mixins (19 simple mixins) --
@@ -49,9 +50,6 @@ from neural_memory.storage.sql.mixins.tool_events import ToolEventsMixin
 from neural_memory.storage.sql.mixins.training_files import TrainingFilesMixin
 from neural_memory.storage.sql.mixins.typed_memory import TypedMemoryMixin
 from neural_memory.storage.sql.mixins.versioning import VersioningMixin
-
-# -- Schema DDL --
-from neural_memory.storage.sqlite_schema import SCHEMA
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +97,7 @@ class SQLStorage(
     def __init__(self, dialect: Dialect) -> None:
         self._dialect = dialect
         self._current_brain_id: str | None = None
+        self._neuron_cache = NeuronLookupCache(ttl_seconds=30.0, max_entries=500)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -107,11 +106,36 @@ class SQLStorage(
     async def initialize(self) -> None:
         """Initialize the dialect and create schema tables."""
         await self._dialect.initialize()
-        # Create all tables and indexes via the shared DDL script.
-        # The SCHEMA constant uses CREATE TABLE/INDEX IF NOT EXISTS,
-        # so it is safe to run repeatedly and works for both SQLite
-        # and PostgreSQL for the core table definitions.
-        await self._dialect.execute_script(SCHEMA)
+
+        if self._dialect.name == "sqlite":
+            # SQLite uses the existing SCHEMA DDL (with AUTOINCREMENT, TEXT
+            # for timestamps/JSON, etc.) and then sets up FTS5 virtual tables.
+            from neural_memory.storage.sqlite_schema import SCHEMA
+
+            await self._dialect.execute_script(SCHEMA)
+
+            # FTS setup requires individual execute() calls (not executescript)
+            # because trigger bodies contain semicolons inside BEGIN...END.
+            from neural_memory.storage.sqlite_schema import (
+                ensure_fiber_fts_tables,
+                ensure_fts_tables,
+            )
+
+            conn = self._dialect._ensure_conn()  # type: ignore[attr-defined]
+            await ensure_fts_tables(conn)
+            await ensure_fiber_fts_tables(conn)
+            self._dialect._has_fts = True  # type: ignore[attr-defined]
+        elif self._dialect.name == "postgres":
+            # PostgreSQL needs a compatible DDL variant — the dialect
+            # provides it via get_schema_ddl().
+            ddl = self._dialect.get_schema_ddl()
+            await self._dialect.execute_script(ddl)
+        else:
+            # Fallback for unknown dialects: try the SQLite schema (best effort)
+            from neural_memory.storage.sqlite_schema import SCHEMA
+
+            await self._dialect.execute_script(SCHEMA)
+
         logger.info("SQLStorage initialized with %s dialect", self._dialect.name)
 
     async def close(self) -> None:

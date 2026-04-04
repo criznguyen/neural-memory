@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ class SQLiteDialect(Dialect):
         self._db_path = Path(db_path).resolve()
         self._conn: aiosqlite.Connection | None = None
         self._has_fts: bool = False
+        self._in_transaction: bool = False
 
     # ------------------------------------------------------------------
     # Feature flags
@@ -83,7 +85,8 @@ class SQLiteDialect(Dialect):
     async def execute(self, sql: str, params: Sequence[Any] = ()) -> str:
         conn = self._ensure_conn()
         await conn.execute(sql, tuple(params))
-        await conn.commit()
+        if not self._in_transaction:
+            await conn.commit()
         return ""
 
     async def fetch_all(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
@@ -107,7 +110,8 @@ class SQLiteDialect(Dialect):
     async def execute_many(self, sql: str, args_list: Sequence[Sequence[Any]]) -> None:
         conn = self._ensure_conn()
         await conn.executemany(sql, [tuple(a) for a in args_list])
-        await conn.commit()
+        if not self._in_transaction:
+            await conn.commit()
 
     async def execute_script(self, sql: str) -> None:
         conn = self._ensure_conn()
@@ -116,13 +120,15 @@ class SQLiteDialect(Dialect):
     async def execute_count(self, sql: str, params: Sequence[Any] = ()) -> int:
         conn = self._ensure_conn()
         cursor = await conn.execute(sql, tuple(params))
-        await conn.commit()
+        if not self._in_transaction:
+            await conn.commit()
         return cursor.rowcount
 
     async def execute_returning_count(self, sql: str, params: Sequence[Any] = ()) -> int:
         conn = self._ensure_conn()
         await conn.execute(sql, tuple(params))
-        await conn.commit()
+        if not self._in_transaction:
+            await conn.commit()
         cursor = await conn.execute("SELECT changes() as cnt", ())
         row = await cursor.fetchone()
         return row[0] if row else 0
@@ -191,6 +197,31 @@ class SQLiteDialect(Dialect):
     # ------------------------------------------------------------------
     # Schema helpers (override defaults for SQLite)
     # ------------------------------------------------------------------
+
+    def get_schema_ddl(self) -> str:
+        from neural_memory.storage.sqlite_schema import SCHEMA
+
+        return SCHEMA
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[None]:
+        """Atomic transaction for SQLite.
+
+        Sets ``_in_transaction`` so that individual execute/execute_many
+        calls skip their per-statement ``conn.commit()``. The commit (or
+        rollback) happens here at the end of the block.
+        """
+        conn = self._ensure_conn()
+        await conn.execute("BEGIN IMMEDIATE")
+        self._in_transaction = True
+        try:
+            yield
+            await conn.commit()
+        except Exception:
+            await conn.rollback()
+            raise
+        finally:
+            self._in_transaction = False
 
     def auto_increment_pk(self) -> str:
         return "INTEGER PRIMARY KEY AUTOINCREMENT"

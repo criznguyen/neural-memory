@@ -18,7 +18,8 @@ The dialect handles:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any
 
@@ -278,3 +279,27 @@ class Dialect(ABC):
         PostgreSQL: ``JSONB``
         """
         return "TEXT"
+
+    def get_schema_ddl(self) -> str:
+        """Return the full DDL script for creating all schema tables.
+
+        Override in subclasses that need dialect-specific DDL (e.g.,
+        PostgreSQL uses SERIAL, TIMESTAMPTZ, JSONB instead of SQLite types).
+        Default implementation returns the SQLite SCHEMA.
+        """
+        from neural_memory.storage.sqlite_schema import SCHEMA
+
+        return SCHEMA
+
+    # ------------------------------------------------------------------
+    # Transaction support
+    # ------------------------------------------------------------------
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[None]:
+        """Context manager for atomic transactions.
+
+        Default implementation is a no-op (each statement auto-commits).
+        Override in subclasses to provide real transaction semantics.
+        """
+        yield
