@@ -89,8 +89,8 @@ class TestSemanticAlternativePath:
     """EPISODIC→SEMANTIC via rehearsal count + distinct windows."""
 
     def test_constants(self):
-        assert _MIN_REHEARSAL_COUNT == 15
-        assert _MIN_DISTINCT_WINDOWS == 5
+        assert _MIN_REHEARSAL_COUNT == 5
+        assert _MIN_DISTINCT_WINDOWS == 3
 
     def test_classic_path_still_works(self):
         """3 distinct days + 7 days elapsed → SEMANTIC."""
@@ -151,34 +151,35 @@ class TestSemanticAlternativePath:
         assert result.stage == MemoryStage.EPISODIC
 
     def test_agent_path_not_enough_rehearsals(self):
-        """10 rehearsals (< 15) with spread → still EPISODIC."""
+        """3 rehearsals (< 5) with only 2 windows → still EPISODIC."""
         now = utcnow()
-        entered = now - timedelta(days=8)
+        entered = now - timedelta(days=4)
         base = entered + timedelta(days=1)
-        timestamps = tuple((base + timedelta(hours=i * 2)).isoformat() for i in range(10))
+        # 3 timestamps in same 2h window — not enough rehearsals or windows
+        timestamps = tuple((base + timedelta(minutes=i * 10)).isoformat() for i in range(3))
         record = MaturationRecord(
             fiber_id="f1",
             brain_id="b1",
             stage=MemoryStage.EPISODIC,
             stage_entered_at=entered,
-            rehearsal_count=10,
+            rehearsal_count=3,
             reinforcement_timestamps=timestamps,
         )
         result = compute_stage_transition(record, now=now)
         assert result.stage == MemoryStage.EPISODIC
 
     def test_time_gate_enforced(self):
-        """15 rehearsals + spread but only 3 days elapsed → EPISODIC."""
+        """5 rehearsals + spread but only 2 days elapsed → EPISODIC."""
         now = utcnow()
-        entered = now - timedelta(days=3)  # Only 3 days, not 7
+        entered = now - timedelta(days=2)  # Only 2 days, not 3
         base = entered + timedelta(hours=1)
-        timestamps = tuple((base + timedelta(hours=i * 2)).isoformat() for i in range(15))
+        timestamps = tuple((base + timedelta(hours=i * 2)).isoformat() for i in range(5))
         record = MaturationRecord(
             fiber_id="f1",
             brain_id="b1",
             stage=MemoryStage.EPISODIC,
             stage_entered_at=entered,
-            rehearsal_count=15,
+            rehearsal_count=5,
             reinforcement_timestamps=timestamps,
         )
         result = compute_stage_transition(record, now=now)
