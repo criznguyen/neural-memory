@@ -119,24 +119,19 @@ def _apply_fiber_filters(
     if time_overlaps is not None:
         start, end = time_overlaps
         result = [
-            f for f in result
+            f
+            for f in result
             if f.time_start is not None
             and f.time_end is not None
             and f.time_start <= end
             and f.time_end >= start
         ]
     if tags is not None and tags:
-        result = [
-            f for f in result
-            if _fiber_tags_match(f, tags, tag_mode)
-        ]
+        result = [f for f in result if _fiber_tags_match(f, tags, tag_mode)]
     if min_salience is not None:
         result = [f for f in result if f.salience >= min_salience]
     if metadata_key is not None:
-        result = [
-            f for f in result
-            if f.metadata.get(metadata_key) is not None
-        ]
+        result = [f for f in result if f.metadata.get(metadata_key) is not None]
     return result
 
 
@@ -333,8 +328,7 @@ class InfinityDBStorage(
         # Post-filter: created_before (engine doesn't support natively)
         if created_before is not None:
             neurons = [
-                n for n in neurons
-                if n.created_at is not None and n.created_at < created_before
+                n for n in neurons if n.created_at is not None and n.created_at < created_before
             ]
 
         return neurons[:limit]
@@ -584,7 +578,9 @@ class InfinityDBStorage(
                     raw.append(_meta_to_fiber(f))
         else:
             # Fetch more than limit to allow post-filtering
-            fetch_limit = limit * 3 if (tags or min_salience or time_overlaps or metadata_key) else limit
+            fetch_limit = (
+                limit * 3 if (tags or min_salience or time_overlaps or metadata_key) else limit
+            )
             results = await self.db.find_fibers(limit=fetch_limit)
             raw = [_meta_to_fiber(f) for f in results]
 
@@ -682,10 +678,13 @@ class InfinityDBStorage(
                     updated_at = datetime.fromisoformat(updated_at_str)
                 config_dict = data.get("config")
                 if config_dict:
-                    config = BrainConfig(**{
-                        k: v for k, v in config_dict.items()
-                        if k in BrainConfig.__dataclass_fields__
-                    })
+                    config = BrainConfig(
+                        **{
+                            k: v
+                            for k, v in config_dict.items()
+                            if k in BrainConfig.__dataclass_fields__
+                        }
+                    )
         except Exception:
             logger.debug("Failed to load brain config sidecar", exc_info=True)
 

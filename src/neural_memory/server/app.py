@@ -96,7 +96,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             else:
                 db = getattr(storage, "_db", None)
                 if db is None or not hasattr(db, "execute"):
-                    _logger.warning("File watcher skipped: storage backend does not support watch state")
+                    _logger.warning(
+                        "File watcher skipped: storage backend does not support watch state"
+                    )
                 else:
                     state_tracker = WatchStateTracker(db)
                     await state_tracker.initialize()

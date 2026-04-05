@@ -417,8 +417,12 @@ class SQLiteToInfinityMigrator:
                     # Preserve fiber metadata for round-trip fidelity
                     fiber_meta: dict[str, Any] = {}
                     for key in (
-                        "salience", "conductivity", "coherence", "frequency",
-                        "compression_tier", "pinned",
+                        "salience",
+                        "conductivity",
+                        "coherence",
+                        "frequency",
+                        "compression_tier",
+                        "pinned",
                     ):
                         val = row_dict.get(key)
                         if val is not None:

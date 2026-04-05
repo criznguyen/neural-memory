@@ -242,7 +242,9 @@ class CognitiveHandler:
                     evidence_for.append(
                         {
                             "neuron_id": syn.source_id,
-                            "content": (src_neuron.content[:PREVIEW_SHORT] if src_neuron else "(deleted)"),
+                            "content": (
+                                src_neuron.content[:PREVIEW_SHORT] if src_neuron else "(deleted)"
+                            ),
                             "weight": syn.weight,
                         }
                     )
@@ -251,7 +253,9 @@ class CognitiveHandler:
                     evidence_against.append(
                         {
                             "neuron_id": syn.source_id,
-                            "content": (src_neuron.content[:PREVIEW_SHORT] if src_neuron else "(deleted)"),
+                            "content": (
+                                src_neuron.content[:PREVIEW_SHORT] if src_neuron else "(deleted)"
+                            ),
                             "weight": syn.weight,
                         }
                     )
@@ -695,14 +699,18 @@ class CognitiveHandler:
                     hyp_neuron = await storage.get_neuron(syn.target_id)
                     linked_hypothesis = {
                         "hypothesis_id": syn.target_id,
-                        "content": (hyp_neuron.content[:PREVIEW_SHORT] if hyp_neuron else "(deleted)"),
+                        "content": (
+                            hyp_neuron.content[:PREVIEW_SHORT] if hyp_neuron else "(deleted)"
+                        ),
                     }
                 elif syn.type in (SynapseType.VERIFIED_BY, SynapseType.FALSIFIED_BY):
                     obs_neuron = await storage.get_neuron(syn.target_id)
                     verification = {
                         "outcome": "correct" if syn.type == SynapseType.VERIFIED_BY else "wrong",
                         "observation_id": syn.target_id,
-                        "content": (obs_neuron.content[:PREVIEW_SHORT] if obs_neuron else "(deleted)"),
+                        "content": (
+                            obs_neuron.content[:PREVIEW_SHORT] if obs_neuron else "(deleted)"
+                        ),
                     }
                 if linked_hypothesis and verification:
                     break

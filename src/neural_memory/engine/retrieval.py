@@ -305,9 +305,7 @@ class ReflexPipeline:
             from neural_memory.engine.simhash_filter import compute_exclude_set
 
             neuron_hashes = await self._storage.get_neuron_hashes()
-            exclude_ids = compute_exclude_set(
-                query, neuron_hashes, effective_simhash
-            )
+            exclude_ids = compute_exclude_set(query, neuron_hashes, effective_simhash)
 
         # 3. Find anchor neurons (time-first) with ranked results
         anchor_sets, ranked_lists = await self._find_anchors_ranked(

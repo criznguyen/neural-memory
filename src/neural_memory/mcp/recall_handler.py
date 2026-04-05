@@ -430,7 +430,9 @@ class RecallHandler:
                     else result
                 )
             except Exception:
-                logger.warning("Post-filter (trust/tier) failed, returning unfiltered results", exc_info=True)
+                logger.warning(
+                    "Post-filter (trust/tier) failed, returning unfiltered results", exc_info=True
+                )
 
         # Exact mode: return raw neuron contents without truncation
         if recall_mode == "exact" and result.fibers_matched:
