@@ -115,17 +115,27 @@ class DedupPipeline:
         return DedupResult(is_duplicate=False, reason="no tier found a match")
 
     async def _get_candidates_by_hash(self, content_hash: int) -> list[Neuron]:
-        """Fast path: fetch neurons with matching SimHash via indexed column."""
+        """Fast path: indexed existence check, then targeted fetch.
+
+        Uses has_neuron_by_content_hash() (indexed single-row lookup) as a
+        gate before doing any work. Only fetches actual neurons if hash exists.
+        """
         if content_hash == 0:
             return []
         try:
+            # Fast indexed check — O(1) via idx_neurons_hash
+            if not await self._storage.has_neuron_by_content_hash(content_hash):
+                return []
+
+            # Hash exists — fetch matching neurons (bounded scan)
             all_hashes = await self._storage.get_neuron_hashes()
-            # Find neurons with exact hash match (hamming distance 0)
             matching_ids = [nid for nid, h in all_hashes if h == content_hash]
             if not matching_ids:
                 return []
+
+            # Fetch up to 10 matching anchor neurons
             neurons = []
-            for nid in matching_ids[:10]:  # Cap at 10 exact matches
+            for nid in matching_ids[:10]:
                 neuron = await self._storage.get_neuron(nid)
                 if neuron and neuron.metadata.get("is_anchor", False):
                     neurons.append(neuron)
