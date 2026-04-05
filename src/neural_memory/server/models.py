@@ -32,7 +32,7 @@ class QueryRequest(BaseModel):
     max_tokens: int = Field(
         500,
         ge=50,
-        le=5000,
+        le=10000,
         description="Maximum tokens in returned context",
     )
     include_subgraph: bool = Field(False, description="Whether to include subgraph details")
@@ -58,6 +58,36 @@ class QueryRequest(BaseModel):
         ge=0,
         le=64,
         description="SimHash pre-filter Hamming distance cutoff. 0=disabled. Overrides brain config for this query.",
+    )
+    valid_at: datetime | None = Field(
+        None,
+        description="ISO datetime to filter memories valid at that point in time (fiber temporal window).",
+    )
+    min_confidence: float = Field(
+        0.0,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence threshold for results.",
+    )
+    permanent_only: bool = Field(
+        False,
+        description="Exclude ephemeral (session-scoped) memories from results.",
+    )
+    min_trust: float | None = Field(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Filter: only return memories with trust_score >= this value.",
+    )
+    tier: str | None = Field(
+        None,
+        pattern=r"^(hot|warm|cold)$",
+        description="Filter results by memory tier.",
+    )
+    domain: str | None = Field(
+        None,
+        max_length=50,
+        description="Domain scope filter for HOT context boundary injection.",
     )
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Annotated, Any
 from uuid import uuid4
@@ -30,6 +31,8 @@ from neural_memory.server.models import (
     SynapseUpdateRequest,
 )
 from neural_memory.storage.base import NeuralStorage
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/memory",
@@ -69,12 +72,16 @@ async def encode_memory(
 
     tags = set(request.tags) if request.tags else None
 
-    result = await encoder.encode(
-        content=request.content,
-        timestamp=request.timestamp,
-        metadata=request.metadata,
-        tags=tags,
-    )
+    try:
+        result = await encoder.encode(
+            content=request.content,
+            timestamp=request.timestamp,
+            metadata=request.metadata,
+            tags=tags,
+        )
+    except Exception:
+        logger.error("Encode failed for content length %d", len(request.content), exc_info=True)
+        raise HTTPException(status_code=500, detail="Memory encoding failed")
 
     return EncodeResponse(
         fiber_id=result.fiber.id,
@@ -105,16 +112,36 @@ async def query_memory(
     if tags is not None and not tags:
         tags = None
 
-    result = await pipeline.query(
-        query=request.query,
-        depth=depth,
-        max_tokens=request.max_tokens,
-        reference_time=request.reference_time,
-        tags=tags,
-        tag_mode=request.tag_mode,
-        as_of=request.as_of,
-        simhash_threshold=request.simhash_threshold,
-    )
+    try:
+        result = await pipeline.query(
+            query=request.query,
+            depth=depth,
+            max_tokens=request.max_tokens,
+            reference_time=request.reference_time,
+            valid_at=request.valid_at,
+            tags=tags,
+            tag_mode=request.tag_mode,
+            as_of=request.as_of,
+            simhash_threshold=request.simhash_threshold,
+            exclude_ephemeral=request.permanent_only,
+        )
+    except Exception:
+        logger.error("Query pipeline failed for query: %s", request.query[:200], exc_info=True)
+        raise HTTPException(status_code=500, detail="Memory retrieval failed")
+
+    # Apply min_confidence filter
+    if result.confidence < request.min_confidence:
+        return QueryResponse(
+            answer=None,
+            confidence=result.confidence,
+            depth_used=result.depth_used.value,
+            neurons_activated=0,
+            fibers_matched=[],
+            context="",
+            latency_ms=result.latency_ms,
+            subgraph=None,
+            metadata={"filtered": "below_min_confidence"},
+        )
 
     subgraph = None
     if request.include_subgraph:
