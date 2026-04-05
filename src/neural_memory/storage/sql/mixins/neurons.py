@@ -226,6 +226,7 @@ class NeuronMixin:
         limit: int = 100,
         offset: int = 0,
         ephemeral: bool | None = None,
+        created_before: datetime | None = None,
     ) -> list[Neuron]:
         # Cache shortcut for exact-match lookups (most repeated pattern)
         if content_exact is not None and content_contains is None and time_range is None:

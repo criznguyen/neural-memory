@@ -24,7 +24,7 @@ def compute_exclude_set(
     Args:
         query: The recall query text.
         neuron_hashes: List of (neuron_id, content_hash) pairs from storage.
-        threshold: Maximum Hamming distance to keep (1-32).
+        threshold: Maximum Hamming distance to keep (1-64).
             Neurons with distance > threshold are excluded.
 
     Returns:

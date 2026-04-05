@@ -123,6 +123,7 @@ class FalkorDBNeuronMixin(FalkorDBBaseMixin):
         limit: int = 100,
         offset: int = 0,
         ephemeral: bool | None = None,
+        created_before: datetime | None = None,
     ) -> list[Neuron]:
         full_scan = content_contains is None and content_exact is None
         limit = min(limit, 10000 if full_scan else 1000)

@@ -91,6 +91,7 @@ class PostgresNeuronMixin(PostgresBaseMixin):
         limit: int = 100,
         offset: int = 0,
         ephemeral: bool | None = None,
+        created_before: datetime | None = None,
     ) -> list[Neuron]:
         brain_id = self._get_brain_id()
         full_scan = content_contains is None and content_exact is None

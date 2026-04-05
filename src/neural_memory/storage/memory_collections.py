@@ -79,6 +79,7 @@ class InMemoryCollectionsMixin:
         limit_per_neuron: int = 10,
         tags: set[str] | None = None,
         tag_mode: str = "and",
+        created_before: datetime | None = None,
     ) -> list[Fiber]:
         """Find fibers containing any of the given neurons from in-memory store."""
         brain_id = self._get_brain_id()

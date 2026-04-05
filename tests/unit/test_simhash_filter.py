@@ -90,13 +90,13 @@ class TestComputeExcludeSet:
         assert "n2" in result  # very different — excluded
 
     def test_large_threshold_excludes_nothing(self) -> None:
-        """Threshold=32 (half of 64 bits) should exclude almost nothing."""
+        """Threshold=64 (full 64-bit hash) should exclude nothing."""
         hashes = [
             ("n1", simhash("abc")),
             ("n2", simhash("xyz")),
             ("n3", simhash("123")),
         ]
-        result = compute_exclude_set("hello", hashes, threshold=32)
+        result = compute_exclude_set("hello", hashes, threshold=64)
         assert len(result) == 0
 
 

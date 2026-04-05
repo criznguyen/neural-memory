@@ -294,7 +294,7 @@ class ReflexPipeline:
 
         # 2.9 SimHash pre-filter: exclude distant neurons before anchor search
         exclude_ids: set[str] = set()
-        if self._config.simhash_prefilter_threshold > 0:
+        if self._config.simhash_prefilter_threshold > 0 and query.strip():
             from neural_memory.engine.simhash_filter import compute_exclude_set
 
             neuron_hashes = await self._storage.get_neuron_hashes()
@@ -1883,6 +1883,7 @@ class ReflexPipeline:
                     time_range=(hint.absolute_start, hint.absolute_end),
                     limit=5,
                     ephemeral=ephemeral_filter,
+                    created_before=created_before,
                 )
                 for hint in stimulus.time_hints
             ]
@@ -1902,7 +1903,10 @@ class ReflexPipeline:
         # 2 & 3. Entity + keyword anchors (parallel)
         entity_tasks = [
             self._storage.find_neurons(
-                content_contains=entity.text, limit=3, ephemeral=ephemeral_filter
+                content_contains=entity.text,
+                limit=3,
+                ephemeral=ephemeral_filter,
+                created_before=created_before,
             )
             for entity in stimulus.entities
         ]
@@ -1960,6 +1964,7 @@ class ReflexPipeline:
                 content_contains=keyword,
                 limit=kw_limits.get(keyword, _default_kw_limit),
                 ephemeral=ephemeral_filter,
+                created_before=created_before,
             )
             for keyword in normalized[:15]  # cap at 15 (expanded with Vietnamese variants)
         ]
@@ -2015,6 +2020,7 @@ class ReflexPipeline:
                         content_contains=prefix,
                         limit=self._config.fuzzy_search_max_candidates,
                         ephemeral=ephemeral_filter,
+                        created_before=created_before,
                     )
                     for _kw, prefix in _fuzzy_kw_prefix_pairs
                 ]

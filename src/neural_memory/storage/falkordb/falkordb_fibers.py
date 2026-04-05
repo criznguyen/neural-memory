@@ -178,6 +178,7 @@ class FalkorDBFiberMixin(FalkorDBBaseMixin):
         limit_per_neuron: int = 10,
         tags: set[str] | None = None,
         tag_mode: str = "and",
+        created_before: datetime | None = None,
     ) -> list[Fiber]:
         if not neuron_ids:
             return []

@@ -210,6 +210,7 @@ class InfinityDBStorage(
         limit: int = 100,
         offset: int = 0,
         ephemeral: bool | None = None,
+        created_before: datetime | None = None,
     ) -> list[Neuron]:
         tr = None
         if time_range is not None:
