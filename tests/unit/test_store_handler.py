@@ -260,13 +260,9 @@ class TestStoreHandler:
 
     async def test_export_with_output_path(self, server: MockStoreServer, tmp_path: object) -> None:
         """Export with output_path saves file to disk."""
-        import tempfile
         from pathlib import Path
 
-        with (
-            tempfile.TemporaryDirectory() as tmpdir,
-            patch("neural_memory.mcp.store_handler.create_brain_package") as mock_create,
-        ):
+        with patch("neural_memory.mcp.store_handler.create_brain_package") as mock_create:
             mock_create.return_value = {
                 "manifest": {
                     "name": "my-brain",
@@ -275,17 +271,25 @@ class TestStoreHandler:
                     "size_tier": "micro",
                 },
             }
-            out_file = str(Path(tmpdir) / "test.brain")
-            result = await server._store(
-                {
-                    "action": "export",
-                    "display_name": "My Brain",
-                    "output_path": out_file,
-                }
-            )
-            assert result["status"] == "exported"
-            assert result["path"] == str(Path(out_file).resolve())
-            assert Path(out_file).exists()
+            # Use Path.home() subdir so path validation passes on all platforms
+            out_dir = Path.home() / ".neural_memory_test_export"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_file = str(out_dir / "test.brain")
+            try:
+                result = await server._store(
+                    {
+                        "action": "export",
+                        "display_name": "My Brain",
+                        "output_path": out_file,
+                    }
+                )
+                assert result["status"] == "exported"
+                assert result["path"] == str(Path(out_file).resolve())
+                assert Path(out_file).exists()
+            finally:
+                # Cleanup
+                Path(out_file).unlink(missing_ok=True)
+                out_dir.rmdir()
 
     async def test_exception_handling(self, server: MockStoreServer) -> None:
         """Exceptions in handlers are caught and logged."""
