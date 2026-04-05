@@ -81,7 +81,10 @@ class TestComputeExcludeSet:
         query = "python programming language"
         hashes = [
             ("n1", simhash("python programming tutorial")),  # similar (distance ~13)
-            ("n2", simhash("ocean biology marine life coral reef ecosystem")),  # very different (~31)
+            (
+                "n2",
+                simhash("ocean biology marine life coral reef ecosystem"),
+            ),  # very different (~31)
             ("n3", 0),  # no hash
         ]
         result = compute_exclude_set(query, hashes, threshold=15)
