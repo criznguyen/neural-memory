@@ -115,6 +115,8 @@ class BrainConfig:
     idf_anchor_enabled: bool = False
     idf_anchor_min_limit: int = 1
     idf_anchor_max_limit: int = 5
+    # SimHash pre-filter: exclude distant neurons before spreading activation
+    simhash_prefilter_threshold: int = 0  # 0=disabled, 1-32=Hamming distance cutoff
     # Query expansion (synonym, abbreviation, cross-language)
     query_expansion_synonyms: bool = True
     query_expansion_abbreviations: bool = True

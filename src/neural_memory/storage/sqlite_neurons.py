@@ -138,6 +138,16 @@ class SQLiteNeuronMixin:
             rows = await cursor.fetchall()
             return {row["id"]: row_to_neuron(row) for row in rows}
 
+    async def get_neuron_hashes(self) -> list[tuple[str, int]]:
+        """Fetch (neuron_id, content_hash) pairs for SimHash pre-filtering."""
+        brain_id = self._get_brain_id()
+        async with self._read_pool.acquire() as db:  # type: ignore[attr-defined]
+            cursor = await db.execute(
+                "SELECT id, content_hash FROM neurons WHERE brain_id = ? AND content_hash != 0",
+                (brain_id,),
+            )
+            return [(row[0], row[1]) for row in await cursor.fetchall()]
+
     async def has_neuron_by_content_hash(self, content_hash: int) -> bool:
         """Check if a neuron with this content hash exists (fast indexed lookup)."""
         async with self._read_pool.acquire() as db:  # type: ignore[attr-defined]

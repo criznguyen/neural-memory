@@ -127,6 +127,14 @@ class NeuralStorage(ABC):
                 results[content] = matches[0]
         return results
 
+    async def get_neuron_hashes(self) -> list[tuple[str, int]]:
+        """Fetch (neuron_id, content_hash) pairs for all neurons in current brain.
+
+        Used by SimHash pre-filter to exclude distant neurons before activation.
+        Default returns empty list — SQLite backend overrides with efficient query.
+        """
+        return []
+
     async def has_neuron_by_content_hash(self, content_hash: int) -> bool:
         """Check if a neuron with this content hash exists.
 

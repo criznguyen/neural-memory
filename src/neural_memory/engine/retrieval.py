@@ -291,9 +291,19 @@ class ReflexPipeline:
             if fiber_result is not None:
                 return fiber_result
 
+        # 2.9 SimHash pre-filter: exclude distant neurons before anchor search
+        exclude_ids: set[str] = set()
+        if self._config.simhash_prefilter_threshold > 0:
+            from neural_memory.engine.simhash_filter import compute_exclude_set
+
+            neuron_hashes = await self._storage.get_neuron_hashes()
+            exclude_ids = compute_exclude_set(
+                query, neuron_hashes, self._config.simhash_prefilter_threshold
+            )
+
         # 3. Find anchor neurons (time-first) with ranked results
         anchor_sets, ranked_lists = await self._find_anchors_ranked(
-            stimulus, exclude_ephemeral=exclude_ephemeral
+            stimulus, exclude_ephemeral=exclude_ephemeral, exclude_ids=exclude_ids
         )
 
         # 3.5 RRF score fusion: compute initial activation levels from multi-retriever ranks
@@ -1836,7 +1846,11 @@ class ReflexPipeline:
         return [nid for nid, _ in scored[:top_k]]
 
     async def _find_anchors_ranked(
-        self, stimulus: Stimulus, *, exclude_ephemeral: bool = False
+        self,
+        stimulus: Stimulus,
+        *,
+        exclude_ephemeral: bool = False,
+        exclude_ids: set[str] | None = None,
     ) -> tuple[list[list[str]], list[list[RankedAnchor]]]:
         """Find anchor neurons with ranked results for RRF fusion.
 
@@ -2062,6 +2076,20 @@ class ReflexPipeline:
                     ranked_lists.append(expansion_ranked)
             except Exception:
                 logger.debug("Graph expansion failed (non-critical)", exc_info=True)
+
+        # 6. Apply SimHash pre-filter exclusion
+        if exclude_ids:
+            anchor_sets = [
+                [nid for nid in anchors if nid not in exclude_ids]
+                for anchors in anchor_sets
+            ]
+            ranked_lists = [
+                [ra for ra in ranked if ra.neuron_id not in exclude_ids]
+                for ranked in ranked_lists
+            ]
+            # Remove empty lists
+            anchor_sets = [a for a in anchor_sets if a]
+            ranked_lists = [r for r in ranked_lists if r]
 
         return anchor_sets, ranked_lists
 
