@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.33.0] — 2026-04-05
+
+### Added
+
+- **SimHash Pre-filter** — opt-in locality-sensitive hashing gate before spreading activation. Set `simhash_prefilter_threshold` (1-64) in BrainConfig to exclude distant neurons by Hamming distance, reducing candidate sets on large brains. Legacy neurons (hash=0) are never excluded. Empty/whitespace queries skip the filter entirely.
+- **Time-Travel Queries** — `as_of` parameter on `nmem_recall` filters neurons and fibers by `created_at <= as_of`, reconstructing historical memory state. `reconstruct_stage()` utility walks back maturation stages using `stage_entered_at` timestamps.
+
+### Fixed
+
+- **Time-travel anchor filtering** — `created_before` now passed to all `find_neurons()` calls in anchor search (time, entity, keyword, fuzzy), not just fiber search
+- **Storage backend compat** — all backends (memory, postgres, falkordb, sql, shared, pro) accept `created_before` parameter for signature compatibility
+
+### Tests
+
+- 21 new tests (13 SimHash, 8 time-travel), 6170 total passed
+
 ## [4.32.1] — 2026-04-05
 
 ### Fixed
