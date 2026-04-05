@@ -385,6 +385,7 @@
     "neurons": "Neuron",
     "synapses": "Synapse",
     "fibers": "Fiber",
+    "downloads": "Lượt tải",
     "showing": "{{count}} brain",
     "cached": "từ cache",
     "empty": "Không tìm thấy brain nào. Thử tìm kiếm hoặc danh mục khác.",

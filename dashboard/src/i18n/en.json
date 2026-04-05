@@ -385,6 +385,7 @@
     "neurons": "Neurons",
     "synapses": "Synapses",
     "fibers": "Fibers",
+    "downloads": "Downloads",
     "showing": "{{count}} brains",
     "cached": "cached",
     "empty": "No brains found. Try a different search or category.",

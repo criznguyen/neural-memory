@@ -1,4 +1,4 @@
-import { Atom, TreeStructure, GitBranch, User, Star } from "@phosphor-icons/react"
+import { Atom, TreeStructure, GitBranch, User, Star, DownloadSimple } from "@phosphor-icons/react"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import type { BrainManifest } from "@/api/types"
@@ -78,19 +78,27 @@ export function BrainCard({ manifest, onClick }: BrainCardProps) {
         )}
       </div>
 
-      {/* Footer: Author + Rating */}
+      {/* Footer: Author + Downloads + Rating */}
       <div className="mt-3 flex items-center justify-between border-t border-border pt-2.5 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1">
           <User className="size-3" aria-hidden="true" />
           {manifest.author}
         </span>
-        {manifest.rating_count > 0 && (
-          <span className="inline-flex items-center gap-1">
-            <Star className="size-3 text-amber-500" weight="fill" aria-hidden="true" />
-            {manifest.rating_avg.toFixed(1)}
-            <span className="text-muted-foreground/60">({manifest.rating_count})</span>
-          </span>
-        )}
+        <div className="flex items-center gap-2.5">
+          {manifest.download_count > 0 && (
+            <span className="inline-flex items-center gap-1" title={t("store.downloads")}>
+              <DownloadSimple className="size-3" aria-hidden="true" />
+              {manifest.download_count}
+            </span>
+          )}
+          {manifest.rating_count > 0 && (
+            <span className="inline-flex items-center gap-1">
+              <Star className="size-3 text-amber-500" weight="fill" aria-hidden="true" />
+              {manifest.rating_avg.toFixed(1)}
+              <span className="text-muted-foreground/60">({manifest.rating_count})</span>
+            </span>
+          )}
+        </div>
       </div>
     </Card>
   )
