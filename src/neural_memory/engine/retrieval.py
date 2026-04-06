@@ -432,6 +432,34 @@ class ReflexPipeline:
                 logger.debug("Cone unavailable — falling back to classic activation")
                 strategy = "classic"
 
+        _hybrid_scope: set[str] | None = None
+        if strategy == "hnsw_hybrid":
+            # HNSW-first hybrid: narrow candidates via vector search, then scoped cognitive
+            hybrid_done = False
+            if self._embedding_provider is not None and hasattr(self._storage, "knn_search"):
+                try:
+                    from neural_memory.pro.retrieval.hybrid_recall import hnsw_hybrid_recall
+
+                    query_vec = await self._embedding_provider.embed(query)
+                    hybrid_result = await hnsw_hybrid_recall(
+                        query_embedding=query_vec,
+                        storage=self._storage,
+                        activator=self._activator,
+                        anchor_sets=anchor_sets,
+                        max_hops=self._depth_to_hops(depth),
+                        anchor_activations=anchor_activations,
+                        bm25_query=query if hasattr(self._storage, "text_search") else None,
+                    )
+                    if hybrid_result is not None:
+                        activations, intersections, _hybrid_scope = hybrid_result
+                        co_activations = []
+                        hybrid_done = True
+                except Exception:
+                    logger.debug("Hybrid recall failed, falling back", exc_info=True)
+            if not hybrid_done:
+                logger.debug("Hybrid recall unavailable — falling back to classic")
+                strategy = "classic"
+
         if strategy == "ppr" and self._ppr_activator is not None:
             # Personalized PageRank activation
             activations, intersections = await self._ppr_activator.activate_from_multiple(
@@ -910,12 +938,25 @@ class ReflexPipeline:
         return result
 
     async def _auto_select_strategy(self) -> str:
-        """Auto-select activation strategy based on graph density.
+        """Auto-select activation strategy based on backend and graph density.
 
+        InfinityDB with HNSW → hnsw_hybrid (vector-scoped cognitive).
         Sparse graph (avg <3 synapses/neuron) → classic BFS reaches more.
         Dense graph (avg >8 synapses/neuron) → PPR dampens hub noise.
         Medium → hybrid.
         """
+        # Prefer hnsw_hybrid when InfinityDB is available with vectors
+        if (
+            hasattr(self._storage, "knn_search")
+            and self._embedding_provider is not None
+        ):
+            try:
+                db = getattr(self._storage, "db", None) or getattr(self._storage, "_db", None)
+                if db is not None and hasattr(db, "_index") and db._index.count > 0:
+                    return "hnsw_hybrid"
+            except Exception:
+                pass
+
         try:
             density = await self._storage.get_graph_density()  # type: ignore[attr-defined]
         except Exception:
