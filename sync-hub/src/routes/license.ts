@@ -79,7 +79,7 @@ license.get("/", async (c) => {
       activated_at: row.created_at,
       expires_at: row.expires_at,
       features: isPro
-        ? ["sync", "infinitydb", "cone_queries", "smart_merge", "directional_compress"]
+        ? ["merkle_sync", "cone_queries", "directional_compression", "cross_encoder", "smart_merge", "infinity_db"]
         : [],
       is_pro: isPro,
     });

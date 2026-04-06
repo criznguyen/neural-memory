@@ -5,6 +5,7 @@ import checkout from "./routes/checkout.js";
 import order from "./routes/order.js";
 import webhook from "./routes/webhook.js";
 import { fulfillOrder } from "./lib/license.js";
+import { NM_PRO_FEATURES } from "./lib/features.js";
 
 const app = new Hono<AppEnv>();
 
@@ -39,15 +40,8 @@ app.route("/checkout", checkout);
 app.route("/order", order);
 app.route("/webhook", webhook);
 
-// Pro features granted on all verified licenses
-const PRO_FEATURES = [
-  "merkle_sync",
-  "cone_queries",
-  "directional_compression",
-  "cross_encoder",
-  "smart_merge",
-  "infinity_db",
-];
+// Pro features — canonical source: lib/features.ts
+const PRO_FEATURES = [...NM_PRO_FEATURES];
 
 // ── Expire stale pending orders (30 min cutoff) ───────────────────────────
 
