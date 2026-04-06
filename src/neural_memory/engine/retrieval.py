@@ -1819,8 +1819,8 @@ class ReflexPipeline:
     async def _find_embedding_anchors(self, query: str, top_k: int = 10) -> list[str]:
         """Find anchor neurons via embedding similarity.
 
-        Embeds the query, then finds neurons whose stored embeddings
-        (in metadata['_embedding']) are above the similarity threshold.
+        Fast path: uses HNSW knn_search when available (O(log N)).
+        Fallback: O(N) pairwise scan of stored embeddings.
         """
         if self._embedding_provider is None:
             return []
@@ -1831,17 +1831,22 @@ class ReflexPipeline:
             logger.debug("Embedding query failed (non-critical)", exc_info=True)
             return []
 
-        # Probe: check if any neurons have embeddings before scanning widely
+        # Fast path: HNSW knn_search (InfinityDB)
+        if hasattr(self._storage, "knn_search"):
+            try:
+                knn_results = await self._storage.knn_search(query_vec, k=top_k * 2)
+                threshold = self._config.embedding_similarity_threshold
+                return [nid for nid, sim in knn_results if sim >= threshold][:top_k]
+            except Exception:
+                logger.debug("HNSW knn_search failed, falling back to scan", exc_info=True)
+
+        # Fallback: O(N) scan with pairwise similarity
         probe = await self._storage.find_neurons(limit=20)
         has_embeddings = any(n.metadata.get("_embedding") for n in probe)
         if not has_embeddings:
             return []
 
-        # Wide scan for neurons with stored embeddings (doc neurons
-        # may be older than organic memories). Storage caps at 1000.
         candidates = await self._storage.find_neurons(limit=1000)
-
-        # Collect candidates with embeddings, compute similarity in parallel
         embed_pairs: list[tuple[str, list[float]]] = []
         for neuron in candidates:
             stored_embedding = neuron.metadata.get("_embedding")
@@ -1861,8 +1866,6 @@ class ReflexPipeline:
         results = await asyncio.gather(*[_compute_sim(nid, emb) for nid, emb in embed_pairs])
         threshold = self._config.embedding_similarity_threshold
         scored = [(nid, sim) for nid, sim in results if sim >= threshold]
-
-        # Sort by similarity descending, return top-K IDs
         scored.sort(key=lambda x: x[1], reverse=True)
         return [nid for nid, _ in scored[:top_k]]
 

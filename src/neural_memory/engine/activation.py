@@ -196,6 +196,7 @@ class SpreadingActivation:
         decay_factor: float = 0.5,
         min_activation: float | None = None,
         anchor_activations: dict[str, float] | None = None,
+        scope: set[str] | None = None,
     ) -> tuple[dict[str, ActivationResult], ActivationTrace]:
         """
         Spread activation from anchor neurons through the graph.
@@ -214,6 +215,9 @@ class SpreadingActivation:
             min_activation: Minimum activation to continue spreading
             anchor_activations: Optional per-anchor initial activation levels (from RRF fusion).
                                If None, all anchors start at 1.0.
+            scope: Optional set of neuron IDs to constrain activation spreading.
+                   When set, only neurons in this set are traversed.
+                   Used by hybrid recall to limit activation to HNSW candidates.
 
         Returns:
             Tuple of (dict mapping neuron_id to ActivationResult, ActivationTrace)
@@ -347,6 +351,9 @@ class SpreadingActivation:
                         refractory_ids.add(nid)
 
             for neighbor_neuron, synapse in neighbors:
+                # Skip neurons outside scope (hybrid recall constraint)
+                if scope is not None and neighbor_neuron.id not in scope:
+                    continue
                 # Skip neurons in refractory cooldown
                 if neighbor_neuron.id in refractory_ids:
                     continue

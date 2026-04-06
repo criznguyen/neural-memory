@@ -367,6 +367,33 @@ class InfinityDBStorage(
             results[term] = neurons[:limit_per_term]
         return results
 
+    async def knn_search(
+        self,
+        query_vector: list[float],
+        k: int = 20,
+    ) -> list[tuple[str, float]]:
+        """HNSW k-nearest-neighbor search. Returns [(neuron_id, similarity), ...].
+
+        Uses InfinityDB's HNSW index directly — O(log N) vs O(N) scan.
+        Returns empty if no vectors are indexed.
+        """
+        import numpy as np
+
+        if self.db._index.count == 0:
+            return []
+        vec = np.array(query_vector, dtype=np.float32)
+        slot_ids, distances = self.db._index.search(vec, k=min(k, self.db._index.count))
+        results: list[tuple[str, float]] = []
+        for slot_id, dist in zip(slot_ids, distances):
+            meta = self.db._metadata.get_by_slot(slot_id)
+            if meta is not None:
+                nid = meta.get("id", "")
+                if nid:
+                    # cosine space: distance = 1 - similarity
+                    similarity = max(0.0, 1.0 - dist)
+                    results.append((nid, similarity))
+        return results
+
     async def suggest_neurons(
         self, prefix: str, type_filter: NeuronType | None = None, limit: int = 5
     ) -> list[dict[str, Any]]:
