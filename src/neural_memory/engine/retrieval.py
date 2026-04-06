@@ -2121,6 +2121,29 @@ class ReflexPipeline:
                     ]
                 )
 
+        # 4.5 BM25 TEXT RELEVANCE — Tantivy full-text search (InfinityDB)
+        if hasattr(self._storage, "text_search"):
+            try:
+                bm25_results = await self._storage.text_search(
+                    stimulus.raw_query, limit=15
+                )
+                if bm25_results:
+                    bm25_anchors = [nid for nid, _score in bm25_results]
+                    anchor_sets.append(bm25_anchors)
+                    ranked_lists.append(
+                        [
+                            RankedAnchor(
+                                neuron_id=nid,
+                                rank=i + 1,
+                                retriever="text_relevance",
+                                score=score,
+                            )
+                            for i, (nid, score) in enumerate(bm25_results)
+                        ]
+                    )
+            except Exception:
+                logger.debug("BM25 text search failed (non-critical)", exc_info=True)
+
         # 5. GRAPH EXPANSION — 1-hop neighbors of entity anchors as soft anchors
         if self._config.graph_expansion_enabled and entity_anchors:
             try:

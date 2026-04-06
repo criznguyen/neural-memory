@@ -160,6 +160,36 @@ class HNSWIndex:
             else:
                 raise
 
+    def rebuild_from_vectors(
+        self,
+        slots: list[int],
+        vectors: NDArray[np.float32],
+    ) -> None:
+        """Rebuild the entire HNSW index from vectors.
+
+        Called when index file is missing/corrupt but vectors exist on disk.
+        Creates a fresh index and batch-adds all vectors.
+        """
+        n = len(slots)
+        if n == 0:
+            return
+        max_elements = max(1024, n * 2)
+        self._index = hnswlib.Index(space=self._space, dim=self._dimensions)
+        self._index.init_index(
+            max_elements=max_elements,
+            M=self._m,
+            ef_construction=self._ef_construction,
+        )
+        self._index.set_ef(self._ef_search)
+        self._max_elements = max_elements
+        self._index.add_items(
+            vectors.astype(np.float32),
+            np.array(slots, dtype=np.int64),
+        )
+        self._current_count = n
+        self.save()
+        logger.info("Rebuilt HNSW index from %d vectors", n)
+
     def save(self) -> None:
         """Save index to disk."""
         if self._index is not None:

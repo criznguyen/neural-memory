@@ -98,7 +98,8 @@ class TestWALLogging:
         entries = db._wal.get_pending_entries()
         assert len(entries) == 1
         assert "embedding" in entries[0].payload
-        assert len(entries[0].payload["embedding"]) == dims
+        # Embedding stored as raw float32 bytes (4 bytes per dimension)
+        assert len(entries[0].payload["embedding"]) == dims * 4
         await db.close()
 
     @pytest.mark.asyncio

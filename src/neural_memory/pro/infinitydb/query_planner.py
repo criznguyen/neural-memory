@@ -55,6 +55,10 @@ class QueryPlan:
     # Priority
     priority_weight: float = 0.0  # 0 = ignore, 1.0 = heavily favor high priority
 
+    # Text relevance (BM25 via Tantivy)
+    text_query: str | None = None
+    text_relevance_weight: float = 0.0  # 0 = ignore, 0.8 = standard
+
     # Output
     limit: int = 20
     offset: int = 0
@@ -100,10 +104,12 @@ class QueryExecutor:
         metadata_store: Any,
         index: Any,
         graph_store: Any,
+        text_index: Any = None,
     ) -> None:
         self._metadata = metadata_store
         self._index = index
         self._graph = graph_store
+        self._text_index = text_index
 
     def execute(self, plan: QueryPlan) -> list[dict[str, Any]]:
         """Execute a query plan synchronously.
@@ -140,6 +146,16 @@ class QueryExecutor:
             if priority_ranked:
                 ranked_lists.append(priority_ranked)
                 weights.append(plan.priority_weight)
+
+        # Dimension 5: Text relevance (BM25 via Tantivy)
+        if plan.text_query and plan.text_relevance_weight > 0 and self._text_index is not None:
+            try:
+                bm25_results = self._text_index.search(plan.text_query, limit=plan.vector_k)
+                if bm25_results:
+                    ranked_lists.append([nid for nid, _score in bm25_results])
+                    weights.append(plan.text_relevance_weight)
+            except Exception:
+                logger.debug("BM25 text search failed in QueryExecutor", exc_info=True)
 
         # Fuse with RRF
         if not ranked_lists:
@@ -199,12 +215,26 @@ class QueryExecutor:
         return [nid for nid, _ in all_nodes]
 
     def _recency_rank(self, limit: int = 100) -> list[str]:
-        """Rank by created_at descending (most recent first)."""
+        """Rank by created_at descending (most recent first).
+
+        Uses MetadataStore's SortedList index — O(limit) instead of O(N).
+        """
+        if hasattr(self._metadata, "top_by_recency"):
+            result: list[str] = self._metadata.top_by_recency(limit)
+            return result
+        # Fallback for non-sorted stores
         results = self._metadata.find(limit=limit)
         return [meta.get("id", "") for _, meta in results if meta.get("id")]
 
     def _priority_rank(self, limit: int = 100) -> list[str]:
-        """Rank by priority descending."""
+        """Rank by priority descending.
+
+        Uses MetadataStore's SortedList index — O(limit) instead of O(N log N).
+        """
+        if hasattr(self._metadata, "top_by_priority"):
+            result: list[str] = self._metadata.top_by_priority(limit)
+            return result
+        # Fallback for non-sorted stores
         all_records = self._metadata.iter_all()
         sorted_records = sorted(
             all_records,

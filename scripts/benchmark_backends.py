@@ -1,12 +1,13 @@
-"""Benchmark: SQLite vs InfinityDB — side-by-side recall latency at scale.
+"""Benchmark: SQLite vs InfinityDB vs PostgreSQL — side-by-side recall latency at scale.
 
-Measures per-phase timing breakdown for the full recall pipeline on both backends.
+Measures per-phase timing breakdown for the full recall pipeline on all backends.
 
 Run:
     python scripts/benchmark_backends.py                          # SQLite only, 1K
-    python scripts/benchmark_backends.py --backends sqlite,infdb  # both backends
-    python scripts/benchmark_backends.py --scales 1000,10000 --backends sqlite,infdb
-    python scripts/benchmark_backends.py --scales 1000 --backends infdb --runs 3
+    python scripts/benchmark_backends.py --backends sqlite,infdb  # SQLite + InfinityDB
+    python scripts/benchmark_backends.py --backends sqlite,infdb,postgres  # all 3
+    python scripts/benchmark_backends.py --scales 1000,10000 --backends sqlite,infdb,postgres
+    python scripts/benchmark_backends.py --scales 1000 --backends postgres --runs 3
 
 Output:
     stdout   — markdown table summary with per-phase breakdown
@@ -287,11 +288,52 @@ async def make_infinitydb(base_dir: str, brain_id: str) -> Any:
     return storage
 
 
+async def make_postgres(brain_id: str) -> Any:
+    """Create and initialize a PostgreSQL storage backend (using legacy PostgreSQLStorage)."""
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        from neural_memory.storage.postgres.postgres_store import PostgreSQLStorage
+
+    storage = PostgreSQLStorage(
+        host="localhost", port=5433, database="neuralmemory_bench",
+        user="postgres", password="postgres",
+        embedding_dim=384,
+    )
+    await storage.initialize()
+    return storage
+
+
+async def _clean_postgres() -> None:
+    """Drop and recreate public schema for a clean benchmark run."""
+    import asyncpg
+
+    conn = await asyncpg.connect(
+        host="localhost", port=5433, database="neuralmemory_bench",
+        user="postgres", password="postgres",
+    )
+    try:
+        await conn.execute("DROP SCHEMA public CASCADE")
+        await conn.execute("CREATE SCHEMA public")
+        await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    finally:
+        await conn.close()
+
+
 def check_infdb_available() -> bool:
     """Check if InfinityDB dependencies are installed."""
     try:
         from neural_memory.pro import is_pro_deps_installed
         return is_pro_deps_installed()
+    except ImportError:
+        return False
+
+
+def check_postgres_available() -> bool:
+    """Check if asyncpg is installed."""
+    try:
+        import asyncpg  # noqa: F401
+        return True
     except ImportError:
         return False
 
@@ -560,6 +602,10 @@ async def run_scale(
     elif backend == "infdb":
         base_dir = os.path.join(tmp_dir, f"bench_{backend}_{target_neurons}")
         storage = await make_infinitydb(base_dir, "benchmark")
+    elif backend == "postgres":
+        # Clean slate — drop and recreate schema
+        await _clean_postgres()
+        storage = await make_postgres("benchmark")
     else:
         raise ValueError(f"Unknown backend: {backend}")
 
@@ -634,7 +680,7 @@ async def main() -> None:
         "--backends",
         type=str,
         default="sqlite",
-        help="Comma-separated backends: sqlite,infdb (default: sqlite)",
+        help="Comma-separated backends: sqlite,infdb,postgres (default: sqlite)",
     )
     parser.add_argument(
         "--runs",
@@ -664,6 +710,9 @@ async def main() -> None:
     # Validate backends
     if "infdb" in backends and not check_infdb_available():
         print("ERROR: InfinityDB dependencies not installed. Install with: pip install neural-memory[pro]")
+        sys.exit(1)
+    if "postgres" in backends and not check_postgres_available():
+        print("ERROR: asyncpg not installed. Install with: pip install asyncpg pgvector")
         sys.exit(1)
 
     print("NeuralMemory Backend Comparison Benchmark")

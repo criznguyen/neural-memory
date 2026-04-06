@@ -42,8 +42,13 @@ class VectorStore:
     def dimensions(self) -> int:
         return self._dimensions
 
-    def open(self) -> None:
-        """Open or create the vector file."""
+    def open(self, *, lazy: bool = False) -> None:
+        """Open or create the vector file.
+
+        Args:
+            lazy: If True, skip the expensive norm-scan restore. Caller must
+                  follow up with restore_from_slots() to set bitmap state.
+        """
         if self._path.exists() and self._path.stat().st_size > 0:
             self._mmap = np.memmap(
                 str(self._path),
@@ -53,19 +58,24 @@ class VectorStore:
             total_elements = self._mmap.shape[0]
             self._capacity = total_elements // self._dimensions
             self._mmap = self._mmap.reshape((self._capacity, self._dimensions))
-            self._restore_state()
+            if not lazy:
+                self._restore_state()
             logger.debug(
-                "Opened vector store: capacity=%d, dims=%d, count=%d, next_pos=%d",
+                "Opened vector store: capacity=%d, dims=%d, count=%d, next_pos=%d, lazy=%s",
                 self._capacity,
                 self._dimensions,
                 self._count,
                 self._next_pos,
+                lazy,
             )
         else:
             self._create_new(INITIAL_CAPACITY)
 
     def _restore_state(self) -> None:
-        """Restore _next_pos, _count, and _free_slots from mmap contents."""
+        """Restore _next_pos, _count, and _free_slots from mmap contents.
+
+        Fallback: scans row norms. Prefer restore_from_slots() for O(K) startup.
+        """
         if self._mmap is None:
             return
         row_norms = np.linalg.norm(self._mmap, axis=1)
@@ -76,6 +86,32 @@ class VectorStore:
             self._count = int(np.sum(occupied[: self._next_pos]))
             free_indices = np.where(~occupied[: self._next_pos])[0]
             self._free_slots = set(free_indices.tolist())
+        else:
+            self._next_pos = 0
+            self._count = 0
+            self._free_slots = set()
+
+    def restore_from_slots(self, occupied_slots: set[int]) -> None:
+        """Lazy bitmap restore using known occupied slots from MetadataStore.
+
+        O(K) where K = number of occupied slots, instead of O(capacity × dims)
+        full mmap norm scan. Called by Engine after metadata is loaded.
+        """
+        if not occupied_slots:
+            self._next_pos = 0
+            self._count = 0
+            self._free_slots = set()
+            return
+        max_slot = max(occupied_slots)
+        self._next_pos = max_slot + 1
+        self._count = len(occupied_slots)
+        # Free slots = all positions up to _next_pos that aren't occupied
+        # Only track positive slots (negative slots are metadata-only)
+        positive_occupied = {s for s in occupied_slots if s >= 0}
+        if positive_occupied:
+            self._next_pos = max(positive_occupied) + 1
+            self._count = len(positive_occupied)
+            self._free_slots = set(range(self._next_pos)) - positive_occupied
         else:
             self._next_pos = 0
             self._count = 0

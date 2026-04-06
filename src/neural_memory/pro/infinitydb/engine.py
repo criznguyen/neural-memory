@@ -112,15 +112,31 @@ class InfinityDB:
         # so crash during open sequence can be recovered
         self._wal.open()
 
-        # Open stores
+        # Open stores — metadata first so we can use its slots for lazy vector restore
         self._metadata.open()
-        self._vectors.open()
+        has_metadata = self._metadata.count > 0
+        self._vectors.open(lazy=has_metadata)
+        # Lazy bitmap restore: use metadata slot IDs instead of full mmap norm scan
+        if has_metadata:
+            known_slots = {
+                slot for slot in self._metadata._records  # noqa: SLF001
+                if slot >= 0  # negative slots are metadata-only (no vector)
+            }
+            self._vectors.restore_from_slots(known_slots)
         self._graph.open()
         self._fibers.open()
 
         # Open HNSW with capacity based on metadata count
         initial_cap = max(1024, self._metadata.count * 2)
         self._index.open(max_elements=initial_cap)
+
+        # HNSW rebuild: if index is empty but vectors exist, rebuild from mmap
+        if self._index.count == 0 and self._vectors.count > 0:
+            logger.warning("HNSW index empty but %d vectors exist — rebuilding", self._vectors.count)
+            slots, vecs = self._vectors.get_all_vectors()
+            if slots:
+                self._index.rebuild_from_vectors(slots, vecs)
+
         replayed = self._replay_wal()
         if replayed > 0:
             logger.info("WAL replay: %d entries recovered", replayed)
@@ -216,6 +232,14 @@ class InfinityDB:
 
     # --- WAL Replay ---
 
+    def _decode_wal_embedding(self, raw: Any) -> NDArray[np.float32] | None:
+        """Decode embedding from WAL payload — supports raw bytes (new) and list (legacy)."""
+        if raw is None:
+            return None
+        if isinstance(raw, (bytes, bytearray)):
+            return np.frombuffer(raw, dtype=np.float32).copy()
+        return np.asarray(raw, dtype=np.float32)
+
     def _replay_wal(self) -> int:
         """Replay pending WAL entries for crash recovery.
 
@@ -251,12 +275,10 @@ class InfinityDB:
             if self._metadata.get_by_id(nid) is not None:
                 return
             vec_slot = -1
-            embedding = p.get("embedding")
-            if embedding is not None:
-                vec = np.asarray(embedding, dtype=np.float32)
-                if vec.shape == (self._dimensions,):
-                    vec_slot = self._vectors.add(vec)
-                    self._index.add(vec_slot, vec)
+            vec = self._decode_wal_embedding(p.get("embedding"))
+            if vec is not None and vec.shape == (self._dimensions,):
+                vec_slot = self._vectors.add(vec)
+                self._index.add(vec_slot, vec)
             meta = {
                 "id": nid,
                 "type": p.get("type", "fact"),
@@ -296,17 +318,15 @@ class InfinityDB:
             slot, meta = result
             updates = {k: v for k, v in p.get("updates", {}).items() if k in self._UPDATABLE_FIELDS}
             # Replay embedding update if present
-            embedding = p.get("embedding")
-            if embedding is not None:
-                vec = np.asarray(embedding, dtype=np.float32)
-                if vec.shape == (self._dimensions,):
-                    old_slot = meta.get("vec_slot", -1)
-                    new_slot = self._vectors.add(vec)
-                    self._index.add(new_slot, vec)
-                    if old_slot >= 0:
-                        self._index.delete(old_slot)
-                        self._vectors.delete(old_slot)
-                    updates["vec_slot"] = new_slot
+            vec = self._decode_wal_embedding(p.get("embedding"))
+            if vec is not None and vec.shape == (self._dimensions,):
+                old_slot = meta.get("vec_slot", -1)
+                new_slot = self._vectors.add(vec)
+                self._index.add(new_slot, vec)
+                if old_slot >= 0:
+                    self._index.delete(old_slot)
+                    self._vectors.delete(old_slot)
+                updates["vec_slot"] = new_slot
             if updates:
                 self._metadata.update(slot, updates)
 
@@ -383,7 +403,7 @@ class InfinityDB:
             "tags": list(tags) if tags else [],
         }
         if embedding is not None:
-            wal_payload["embedding"] = np.asarray(embedding, dtype=np.float32).tolist()
+            wal_payload["embedding"] = np.asarray(embedding, dtype=np.float32).tobytes()
         await asyncio.to_thread(self._wal.append, WALOp.ADD_NEURON, wal_payload)
 
         # Store vector if embedding provided
@@ -479,7 +499,7 @@ class InfinityDB:
             }
             embedding = neuron.get("embedding")
             if embedding is not None:
-                wal_payload["embedding"] = np.asarray(embedding, dtype=np.float32).tolist()
+                wal_payload["embedding"] = np.asarray(embedding, dtype=np.float32).tobytes()
             self._wal.append(WALOp.ADD_NEURON, wal_payload)
 
         try:
@@ -652,7 +672,7 @@ class InfinityDB:
         # WAL: log BEFORE any mutation (crash safety)
         wal_payload: dict[str, Any] = {"id": neuron_id, "updates": dict(updates)}
         if embedding is not None:
-            wal_payload["embedding"] = np.asarray(embedding, dtype=np.float32).tolist()
+            wal_payload["embedding"] = np.asarray(embedding, dtype=np.float32).tobytes()
         await asyncio.to_thread(
             self._wal.append,
             WALOp.UPDATE_NEURON,
@@ -773,7 +793,8 @@ class InfinityDB:
         """BM25 full-text search. Returns [(neuron_id, bm25_score), ...]."""
         if self._text_index is None:
             return []
-        return self._text_index.search(query, limit=limit)
+        results: list[tuple[str, float]] = self._text_index.search(query, limit=limit)
+        return results
 
     @property
     def has_text_index(self) -> bool:
@@ -1147,7 +1168,7 @@ class InfinityDB:
         Fuses vector similarity, graph proximity, recency, priority,
         and metadata filters using Reciprocal Rank Fusion.
         """
-        executor = QueryExecutor(self._metadata, self._index, self._graph)
+        executor = QueryExecutor(self._metadata, self._index, self._graph, self._text_index)
         return await asyncio.to_thread(executor.execute, plan)
 
     # --- Suggest ---

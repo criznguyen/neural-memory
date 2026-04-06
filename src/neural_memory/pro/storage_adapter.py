@@ -394,6 +394,14 @@ class InfinityDBStorage(
                     results.append((nid, similarity))
         return results
 
+    async def text_search(
+        self,
+        query: str,
+        limit: int = 15,
+    ) -> list[tuple[str, float]]:
+        """BM25 full-text search via Tantivy. Returns [(neuron_id, bm25_score), ...]."""
+        return self.db.text_search(query, limit=limit)
+
     async def suggest_neurons(
         self, prefix: str, type_filter: NeuronType | None = None, limit: int = 5
     ) -> list[dict[str, Any]]:

@@ -15,12 +15,18 @@ from pathlib import Path
 from typing import Any
 
 import msgpack
+from sortedcontainers import SortedList
 
 logger = logging.getLogger(__name__)
 
 
 class MetadataStore:
-    """Neuron metadata storage with msgpack serialization."""
+    """Neuron metadata storage with msgpack serialization.
+
+    Maintains sorted indexes for O(log N) priority and recency queries:
+    - _priority_index: SortedList of (priority, neuron_id) — ascending
+    - _recency_index: SortedList of (created_at, neuron_id) — ascending
+    """
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -29,6 +35,9 @@ class MetadataStore:
         # neuron_id -> slot_index
         self._id_index: dict[str, int] = {}
         self._dirty = False
+        # Sorted indexes — maintained on add/update/delete
+        self._priority_index: SortedList[tuple[float, str]] = SortedList()
+        self._recency_index: SortedList[tuple[str, str]] = SortedList()
 
     @property
     def count(self) -> int:
@@ -60,6 +69,47 @@ class MetadataStore:
                 self._id_index.clear()
         else:
             logger.debug("No existing metadata, starting fresh")
+        self._rebuild_sorted_indexes()
+
+    def _rebuild_sorted_indexes(self) -> None:
+        """Rebuild sorted indexes from all records."""
+        self._priority_index.clear()
+        self._recency_index.clear()
+        for meta in self._records.values():
+            nid = meta.get("id", "")
+            if not nid:
+                continue
+            priority = meta.get("priority", 0)
+            self._priority_index.add((priority, nid))
+            created = meta.get("created_at", "")
+            if created:
+                self._recency_index.add((created, nid))
+
+    def _add_to_sorted_indexes(self, meta: dict[str, Any]) -> None:
+        """Add a single record to sorted indexes."""
+        nid = meta.get("id", "")
+        if not nid:
+            return
+        self._priority_index.add((meta.get("priority", 0), nid))
+        created = meta.get("created_at", "")
+        if created:
+            self._recency_index.add((created, nid))
+
+    def _remove_from_sorted_indexes(self, meta: dict[str, Any]) -> None:
+        """Remove a single record from sorted indexes."""
+        nid = meta.get("id", "")
+        if not nid:
+            return
+        try:
+            self._priority_index.discard((meta.get("priority", 0), nid))
+        except (ValueError, TypeError):
+            pass
+        created = meta.get("created_at", "")
+        if created:
+            try:
+                self._recency_index.discard((created, nid))
+            except (ValueError, TypeError):
+                pass
 
     def add(self, slot: int, metadata: dict[str, Any]) -> None:
         """Add metadata for a vector slot."""
@@ -67,9 +117,11 @@ class MetadataStore:
         if neuron_id and neuron_id in self._id_index:
             msg = f"Neuron ID already exists: {neuron_id}"
             raise ValueError(msg)
-        self._records[slot] = dict(metadata)  # Defensive copy
+        record = dict(metadata)  # Defensive copy
+        self._records[slot] = record
         if neuron_id:
             self._id_index[neuron_id] = slot
+        self._add_to_sorted_indexes(record)
         self._dirty = True
 
     def get_by_slot(self, slot: int) -> dict[str, Any] | None:
@@ -92,6 +144,8 @@ class MetadataStore:
         meta = self._records.get(slot)
         if meta is None:
             return False
+        # Remove old sorted index entries before update
+        self._remove_from_sorted_indexes(meta)
         # If ID is changing, update index
         old_id = meta.get("id", "")
         new_id = updates.get("id", old_id)
@@ -99,7 +153,10 @@ class MetadataStore:
             if old_id in self._id_index:
                 del self._id_index[old_id]
             self._id_index[new_id] = slot
-        self._records[slot] = {**meta, **updates}
+        updated = {**meta, **updates}
+        self._records[slot] = updated
+        # Re-add with new values
+        self._add_to_sorted_indexes(updated)
         self._dirty = True
         return True
 
@@ -108,12 +165,39 @@ class MetadataStore:
         meta = self._records.get(slot)
         if meta is None:
             return False
+        self._remove_from_sorted_indexes(meta)
         neuron_id = meta.get("id", "")
         if neuron_id in self._id_index:
             del self._id_index[neuron_id]
         del self._records[slot]
         self._dirty = True
         return True
+
+    def top_by_priority(self, limit: int = 100) -> list[str]:
+        """Return neuron IDs sorted by priority descending (highest first).
+
+        Uses the SortedList index — O(limit) slice from the end.
+        """
+        # _priority_index is ascending by (priority, nid), so slice from end
+        result: list[str] = []
+        for _priority, nid in reversed(self._priority_index):
+            result.append(nid)
+            if len(result) >= limit:
+                break
+        return result
+
+    def top_by_recency(self, limit: int = 100) -> list[str]:
+        """Return neuron IDs sorted by created_at descending (most recent first).
+
+        Uses the SortedList index — O(limit) slice from the end.
+        """
+        # _recency_index is ascending by (created_at, nid), so slice from end
+        result: list[str] = []
+        for _created, nid in reversed(self._recency_index):
+            result.append(nid)
+            if len(result) >= limit:
+                break
+        return result
 
     def find(
         self,
