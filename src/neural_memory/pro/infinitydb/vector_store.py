@@ -94,7 +94,7 @@ class VectorStore:
     def restore_from_slots(self, occupied_slots: set[int]) -> None:
         """Lazy bitmap restore using known occupied slots from MetadataStore.
 
-        O(K) where K = number of occupied slots, instead of O(capacity × dims)
+        O(K) where K = number of occupied slots, instead of O(capacity x dims)
         full mmap norm scan. Called by Engine after metadata is loaded.
         """
         if not occupied_slots:

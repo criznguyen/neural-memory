@@ -119,7 +119,8 @@ class InfinityDB:
         # Lazy bitmap restore: use metadata slot IDs instead of full mmap norm scan
         if has_metadata:
             known_slots = {
-                slot for slot in self._metadata._records  # noqa: SLF001
+                slot
+                for slot in self._metadata._records
                 if slot >= 0  # negative slots are metadata-only (no vector)
             }
             self._vectors.restore_from_slots(known_slots)
@@ -132,7 +133,9 @@ class InfinityDB:
 
         # HNSW rebuild: if index is empty but vectors exist, rebuild from mmap
         if self._index.count == 0 and self._vectors.count > 0:
-            logger.warning("HNSW index empty but %d vectors exist — rebuilding", self._vectors.count)
+            logger.warning(
+                "HNSW index empty but %d vectors exist — rebuilding", self._vectors.count
+            )
             slots, vecs = self._vectors.get_all_vectors()
             if slots:
                 self._index.rebuild_from_vectors(slots, vecs)
@@ -605,7 +608,7 @@ class InfinityDB:
                     matched.append(dict(meta))
                     if len(matched) >= limit:
                         break
-                return matched[offset:offset + limit] if offset > 0 else matched[:limit]
+                return matched[offset : offset + limit] if offset > 0 else matched[:limit]
 
         # Fallback to linear scan
         results = self._metadata.find(
@@ -816,7 +819,9 @@ class InfinityDB:
         results: dict[str, list[dict[str, Any]]] = {}
 
         if self._text_index is not None:
-            batch_ids = self._text_index.search_contains_batch(terms, limit_per_term=limit_per_term * 3)
+            batch_ids = self._text_index.search_contains_batch(
+                terms, limit_per_term=limit_per_term * 3
+            )
             # Cache metadata lookups across terms (same neuron may match multiple terms)
             meta_cache: dict[str, dict[str, Any] | None] = {}
             fallback_terms: list[str] = []

@@ -6,9 +6,7 @@ import pytest
 
 from neural_memory.pro.infinitydb.text_index import TextIndex, is_tantivy_available
 
-pytestmark = pytest.mark.skipif(
-    not is_tantivy_available(), reason="tantivy-py not installed"
-)
+pytestmark = pytest.mark.skipif(not is_tantivy_available(), reason="tantivy-py not installed")
 
 
 @pytest.fixture

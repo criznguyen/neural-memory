@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import asdict
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -30,6 +31,8 @@ from neural_memory.utils.timeutils import utcnow
 
 if TYPE_CHECKING:
     from neural_memory.storage.sql.dialect import Dialect
+
+_log = logging.getLogger(__name__)
 
 # -- Export limits ---------------------------------------------------------
 _MAX_EXPORT_NEURONS = 50_000
@@ -413,10 +416,6 @@ class BrainOpsMixin:
             ],
             ["brain_id", "neuron_id"],
         )
-
-        import logging as _logging
-
-        _log = _logging.getLogger(__name__)
 
         for n_data in neurons_data:
             try:

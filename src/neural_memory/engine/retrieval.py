@@ -2028,9 +2028,7 @@ class ReflexPipeline:
                     entity_anchors.extend(n.id for n in batch_results.get(et, [])[:3])
                 for kw in kw_terms:
                     kw_limit = kw_limits.get(kw, _default_kw_limit)
-                    keyword_anchors.extend(
-                        n.id for n in batch_results.get(kw, [])[:kw_limit]
-                    )
+                    keyword_anchors.extend(n.id for n in batch_results.get(kw, [])[:kw_limit])
         else:
             # Standard path: individual find_neurons calls (SQLite, etc.)
             entity_tasks = [
@@ -2157,9 +2155,7 @@ class ReflexPipeline:
         # 4.5 BM25 TEXT RELEVANCE — Tantivy full-text search (InfinityDB)
         if hasattr(self._storage, "text_search"):
             try:
-                bm25_results = await self._storage.text_search(
-                    stimulus.raw_query, limit=15
-                )
+                bm25_results = await self._storage.text_search(stimulus.raw_query, limit=15)
                 if bm25_results:
                     bm25_anchors = [nid for nid, _score in bm25_results]
                     anchor_sets.append(bm25_anchors)

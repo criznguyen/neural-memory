@@ -9,7 +9,6 @@ import pytest
 
 from neural_memory.engine.activation import ActivationResult
 from neural_memory.pro.retrieval.hybrid_recall import (
-    DEFAULT_CANDIDATE_K,
     FALLBACK_THRESHOLD,
     hnsw_hybrid_recall,
 )
@@ -20,7 +19,9 @@ def _make_hnsw_results(n: int) -> list[tuple[str, float]]:
     return [(f"neuron-{i}", 1.0 - i * 0.01) for i in range(n)]
 
 
-def _make_storage(hnsw_results: list[tuple[str, float]], bm25_results: list[tuple[str, float]] | None = None) -> Any:
+def _make_storage(
+    hnsw_results: list[tuple[str, float]], bm25_results: list[tuple[str, float]] | None = None
+) -> Any:
     """Create a mock storage with knn_search and optional text_search."""
     storage = AsyncMock()
     storage.knn_search = AsyncMock(return_value=hnsw_results)
@@ -34,12 +35,18 @@ def _make_activator(activations: dict[str, ActivationResult] | None = None) -> A
     if activations is None:
         activations = {
             "neuron-0": ActivationResult(
-                neuron_id="neuron-0", activation_level=0.9, hop_distance=0,
-                path=["neuron-0"], source_anchor="neuron-0",
+                neuron_id="neuron-0",
+                activation_level=0.9,
+                hop_distance=0,
+                path=["neuron-0"],
+                source_anchor="neuron-0",
             ),
             "neuron-1": ActivationResult(
-                neuron_id="neuron-1", activation_level=0.7, hop_distance=1,
-                path=["neuron-0", "neuron-1"], source_anchor="neuron-0",
+                neuron_id="neuron-1",
+                activation_level=0.7,
+                hop_distance=1,
+                path=["neuron-0", "neuron-1"],
+                source_anchor="neuron-0",
             ),
         }
     activator = MagicMock()
@@ -55,7 +62,10 @@ class TestHybridRecall:
         storage = AsyncMock(spec=[])  # No knn_search attr
         activator = _make_activator()
         result = await hnsw_hybrid_recall(
-            [0.1] * 384, storage, activator, [["a-1"]],
+            [0.1] * 384,
+            storage,
+            activator,
+            [["a-1"]],
         )
         assert result is None
 
@@ -64,7 +74,10 @@ class TestHybridRecall:
         storage = _make_storage(_make_hnsw_results(FALLBACK_THRESHOLD - 1))
         activator = _make_activator()
         result = await hnsw_hybrid_recall(
-            [0.1] * 384, storage, activator, [["a-1"]],
+            [0.1] * 384,
+            storage,
+            activator,
+            [["a-1"]],
         )
         assert result is None
 
@@ -73,7 +86,10 @@ class TestHybridRecall:
         storage = _make_storage(_make_hnsw_results(20))
         activator = _make_activator()
         result = await hnsw_hybrid_recall(
-            [0.1] * 384, storage, activator, [["a-1"]],
+            [0.1] * 384,
+            storage,
+            activator,
+            [["a-1"]],
         )
         assert result is not None
         activations, intersections, scope = result
@@ -85,7 +101,10 @@ class TestHybridRecall:
         storage = _make_storage(_make_hnsw_results(20))
         activator = _make_activator()
         result = await hnsw_hybrid_recall(
-            [0.1] * 384, storage, activator, [["anchor-1", "anchor-2"]],
+            [0.1] * 384,
+            storage,
+            activator,
+            [["anchor-1", "anchor-2"]],
         )
         assert result is not None
         _, _, scope = result
@@ -98,7 +117,10 @@ class TestHybridRecall:
         storage = _make_storage(_make_hnsw_results(20), bm25_results=bm25)
         activator = _make_activator()
         result = await hnsw_hybrid_recall(
-            [0.1] * 384, storage, activator, [["a-1"]],
+            [0.1] * 384,
+            storage,
+            activator,
+            [["a-1"]],
             bm25_query="test query",
         )
         assert result is not None
@@ -111,7 +133,10 @@ class TestHybridRecall:
         storage = _make_storage(_make_hnsw_results(20))
         activator = _make_activator()
         await hnsw_hybrid_recall(
-            [0.1] * 384, storage, activator, [["a-1"]],
+            [0.1] * 384,
+            storage,
+            activator,
+            [["a-1"]],
         )
         call_args = activator.activate_from_multiple.call_args
         assert call_args.kwargs.get("scope") is not None
@@ -123,18 +148,27 @@ class TestHybridRecall:
         hnsw = _make_hnsw_results(20)
         activations = {
             "neuron-0": ActivationResult(
-                neuron_id="neuron-0", activation_level=0.5, hop_distance=0,
-                path=["neuron-0"], source_anchor="neuron-0",
+                neuron_id="neuron-0",
+                activation_level=0.5,
+                hop_distance=0,
+                path=["neuron-0"],
+                source_anchor="neuron-0",
             ),
             "neuron-10": ActivationResult(
-                neuron_id="neuron-10", activation_level=0.5, hop_distance=0,
-                path=["neuron-10"], source_anchor="neuron-10",
+                neuron_id="neuron-10",
+                activation_level=0.5,
+                hop_distance=0,
+                path=["neuron-10"],
+                source_anchor="neuron-10",
             ),
         }
         storage = _make_storage(hnsw)
         activator = _make_activator(activations)
         result = await hnsw_hybrid_recall(
-            [0.1] * 384, storage, activator, [["a-1"]],
+            [0.1] * 384,
+            storage,
+            activator,
+            [["a-1"]],
         )
         assert result is not None
         acts, _, _ = result
@@ -146,7 +180,10 @@ class TestHybridRecall:
         storage = _make_storage(_make_hnsw_results(50))
         activator = _make_activator()
         await hnsw_hybrid_recall(
-            [0.1] * 384, storage, activator, [["a-1"]],
+            [0.1] * 384,
+            storage,
+            activator,
+            [["a-1"]],
             candidate_k=75,
         )
         storage.knn_search.assert_called_once_with([0.1] * 384, k=75)
@@ -157,7 +194,10 @@ class TestHybridRecall:
         storage.text_search = AsyncMock(side_effect=RuntimeError("BM25 broken"))
         activator = _make_activator()
         result = await hnsw_hybrid_recall(
-            [0.1] * 384, storage, activator, [["a-1"]],
+            [0.1] * 384,
+            storage,
+            activator,
+            [["a-1"]],
             bm25_query="test",
         )
         # Should still succeed despite BM25 failure

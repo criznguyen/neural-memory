@@ -384,7 +384,7 @@ class InfinityDBStorage(
         vec = np.array(query_vector, dtype=np.float32)
         slot_ids, distances = self.db._index.search(vec, k=min(k, self.db._index.count))
         results: list[tuple[str, float]] = []
-        for slot_id, dist in zip(slot_ids, distances):
+        for slot_id, dist in zip(slot_ids, distances, strict=False):
             meta = self.db._metadata.get_by_slot(slot_id)
             if meta is not None:
                 nid = meta.get("id", "")
@@ -505,9 +505,13 @@ class InfinityDBStorage(
         infdb_dir = dir_map.get(direction, "outgoing")
         results: dict[str, list[Synapse]] = {}
         for nid in neuron_ids:
-            edges = self.db._graph.get_outgoing(nid) if infdb_dir == "outgoing" else (
-                self.db._graph.get_incoming(nid) if infdb_dir == "incoming" else (
-                    self.db._graph.get_outgoing(nid) + self.db._graph.get_incoming(nid)
+            edges = (
+                self.db._graph.get_outgoing(nid)
+                if infdb_dir == "outgoing"
+                else (
+                    self.db._graph.get_incoming(nid)
+                    if infdb_dir == "incoming"
+                    else (self.db._graph.get_outgoing(nid) + self.db._graph.get_incoming(nid))
                 )
             )
             results[nid] = [_meta_to_synapse(e) for e in edges]
