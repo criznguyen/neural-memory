@@ -60,6 +60,7 @@ class InfinityDB:
         self._fibers = FiberStore(self._paths.fibers)
         self._wal = WriteAheadLog(self._paths.wal)
         self._tier_manager = TierManager(dimensions, tier_config)
+        self._text_index: Any = None  # TextIndex, lazily created if tantivy available
         self._is_open = False
 
     @property
@@ -126,6 +127,22 @@ class InfinityDB:
             self._flush_sync()  # persist recovered state
             self._wal.checkpoint()
 
+        # Open Tantivy text index (optional — graceful degradation if unavailable)
+        try:
+            from neural_memory.pro.infinitydb.text_index import TextIndex, is_tantivy_available
+
+            if is_tantivy_available():
+                fts_path = self._paths.brain_dir / "fts"
+                self._text_index = TextIndex(path=fts_path)
+                self._text_index.open()
+                # Rebuild index if empty but metadata has neurons
+                if self._text_index.count == 0 and self._metadata.count > 0:
+                    self._rebuild_text_index()
+                logger.debug("TextIndex opened: %d docs", self._text_index.count)
+        except Exception:
+            logger.debug("TextIndex init failed (non-critical)", exc_info=True)
+            self._text_index = None
+
         self._is_open = True
         logger.info(
             "InfinityDB opened: brain=%s, neurons=%d, synapses=%d, fibers=%d, dims=%d",
@@ -149,9 +166,25 @@ class InfinityDB:
         self._index.close()
         self._graph.close()
         self._fibers.close()
+        if self._text_index is not None:
+            self._text_index.close()
         self._wal.close()
         self._is_open = False
         logger.info("InfinityDB closed: brain=%s", self._brain_id)
+
+    def _rebuild_text_index(self) -> None:
+        """Rebuild Tantivy text index from metadata store."""
+        if self._text_index is None:
+            return
+        items = [
+            (meta.get("id", ""), meta.get("content", ""))
+            for _slot, meta in self._metadata.iter_all()
+            if meta.get("content")
+        ]
+        if items:
+            self._text_index.add_batch(items)
+            self._text_index.commit()
+            logger.info("TextIndex rebuilt: %d docs", len(items))
 
     async def flush(self) -> None:
         """Flush all data to disk without closing."""
@@ -164,6 +197,8 @@ class InfinityDB:
         self._index.save()
         self._graph.flush()
         self._fibers.flush()
+        if self._text_index is not None:
+            self._text_index.commit()
         # Checkpoint WAL after all stores are persisted
         if self._wal.is_open:
             self._wal.checkpoint()
@@ -397,6 +432,11 @@ class InfinityDB:
                 await asyncio.to_thread(self._vectors.delete, vec_slot)
                 await asyncio.to_thread(self._index.delete, vec_slot)
             raise
+
+        # Index content for full-text search
+        if self._text_index is not None and content:
+            self._text_index.add(nid, content)
+
         return nid
 
     async def add_neurons_batch(
@@ -479,6 +519,16 @@ class InfinityDB:
                 vectors = np.stack(vec_arrays)
                 self._index.add_batch(vec_slots, vectors)
 
+            # Batch add to text index
+            if self._text_index is not None:
+                text_items = [
+                    (resolved_ids[i], neurons[i].get("content", ""))
+                    for i in range(len(neurons))
+                    if neurons[i].get("content")
+                ]
+                if text_items:
+                    self._text_index.add_batch(text_items)
+
         except Exception:
             # Rollback: delete committed metadata and vector slots
             for slot in committed_meta_slots:
@@ -513,6 +563,31 @@ class InfinityDB:
         ephemeral: bool | None = None,
     ) -> list[dict[str, Any]]:
         """Find neurons matching filters."""
+        # Use Tantivy for content_contains when available (O(log N) vs O(N))
+        if content_contains and self._text_index is not None and content_exact is None:
+            fts_ids = self._text_index.search_contains(content_contains, limit=limit * 3)
+            if fts_ids:
+                # Fetch metadata for matched IDs and apply remaining filters
+                matched: list[dict[str, Any]] = []
+                for nid in fts_ids:
+                    result = self._metadata.get_by_id(nid)
+                    if result is None:
+                        continue
+                    _slot, meta = result
+                    if neuron_type and meta.get("type") != neuron_type:
+                        continue
+                    if ephemeral is not None and meta.get("ephemeral") != ephemeral:
+                        continue
+                    if time_range:
+                        created = meta.get("created_at", "")
+                        if created < time_range[0] or created > time_range[1]:
+                            continue
+                    matched.append(dict(meta))
+                    if len(matched) >= limit:
+                        break
+                return matched[offset:offset + limit] if offset > 0 else matched[:limit]
+
+        # Fallback to linear scan
         results = self._metadata.find(
             neuron_type=neuron_type,
             content_contains=content_contains,
@@ -625,6 +700,10 @@ class InfinityDB:
         await asyncio.to_thread(self._graph.delete_neuron_edges, neuron_id)
         await asyncio.to_thread(self._fibers.remove_neuron_from_all, neuron_id)
 
+        # Remove from text index
+        if self._text_index is not None:
+            self._text_index.delete(neuron_id)
+
         await asyncio.to_thread(self._metadata.delete, slot)
         return True
 
@@ -687,6 +766,19 @@ class InfinityDB:
             batch_results.append(results)
 
         return batch_results
+
+    # --- Full-Text Search ---
+
+    def text_search(self, query: str, limit: int = 100) -> list[tuple[str, float]]:
+        """BM25 full-text search. Returns [(neuron_id, bm25_score), ...]."""
+        if self._text_index is None:
+            return []
+        return self._text_index.search(query, limit=limit)
+
+    @property
+    def has_text_index(self) -> bool:
+        """Whether Tantivy text index is available."""
+        return self._text_index is not None and self._text_index.is_open
 
     # --- Synapse (Graph) API ---
 
