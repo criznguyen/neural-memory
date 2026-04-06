@@ -135,6 +135,8 @@ Query memories via spreading activation. Use when you need past context, decisio
 | `clean_for_prompt` | boolean | No | — | Return clean bullet-point text without section headers or neuron-type tags. Use when injecting recall output into pro... |
 | `tier` | string (`hot`, `warm`, `cold`) | No | — | Filter results by memory tier. Only return memories matching this tier. |
 | `domain` | string | No | — | Domain scope filter. When set, HOT context injection only includes boundaries tagged with this domain (plus unscoped ... |
+| `as_of` | string | No | — | ISO datetime for time-travel recall. Returns only memories that existed at that point in time (created_at <= as_of) a... |
+| `simhash_threshold` | integer | No | — | SimHash pre-filter Hamming distance cutoff. Neurons with content_hash farther than this threshold from the query hash... |
 | `compact` | boolean | No | — | Return compact response (strip metadata hints, truncate lists). Saves 60-80% tokens. |
 | `token_budget` | integer | No | — | Max tokens for response. Progressively strips content to fit budget. |
 

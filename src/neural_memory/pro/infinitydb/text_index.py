@@ -249,6 +249,6 @@ class TextIndex:
             return 0
         try:
             searcher = self._index.searcher()
-            return searcher.num_docs
+            return int(searcher.num_docs)
         except Exception:
             return 0

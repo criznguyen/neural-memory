@@ -2018,7 +2018,7 @@ class ReflexPipeline:
                         default=_default_kw_limit,
                     ),
                 )
-                batch_results = await self._storage.find_neurons_by_content_batch(
+                batch_results = await self._storage.find_neurons_by_content_batch(  # type: ignore[attr-defined]
                     terms=all_terms,
                     limit_per_term=max_limit,
                     ephemeral=ephemeral_filter,
