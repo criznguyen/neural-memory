@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.35.0] — 2026-04-07
+
+### Added
+
+- **Tool tier recommendation** — `nmem_stats` now suggests switching to `minimal` (4 tools) or `standard` (9 tools) tier when usage data shows fewer tools are needed, saving 60-80% context tokens
+- **OpenClaw plugin display name** — fixed plugin name from "NeuralMemory" to "Neural Memory" for proper ClawHub listing display
+
+### Fixed
+
+- **CI: mypy errors** — `text_index.py` return type, `retrieval.py` attr-defined for batch method
+- **CI: embedding anchor test** — removed auto-created `knn_search` mock attribute that broke fallback path
+- **CI: docs freshness** — regenerated `mcp-tools.md`
+
+### Tests
+
+- 9 new tool tier hint tests covering all recommendation paths
+
 ## [4.34.0] — 2026-04-07
 
 ### Added
