@@ -233,7 +233,66 @@ class StatsHandler:
         except Exception:
             logger.debug("InfinityDB hint check failed (non-critical)", exc_info=True)
 
+        # Tool tier recommendation: suggest lighter tier if user only uses a few tools
+        try:
+            tool_tier_hint = await self._tool_tier_hint(storage, brain_id)
+            if tool_tier_hint:
+                hints.append(tool_tier_hint)
+        except Exception:
+            logger.debug("Tool tier hint failed (non-critical)", exc_info=True)
+
         return hints
+
+    async def _tool_tier_hint(
+        self,
+        storage: Any,
+        brain_id: str,
+    ) -> str | None:
+        """Suggest a lighter tool tier if usage data shows few tools are needed.
+
+        Compares actual tool usage against tier definitions. If user is on
+        'full' (56 tools) but only uses tools in 'minimal' or 'standard',
+        recommend switching to save context tokens.
+        """
+        from neural_memory.mcp.tool_schemas import TOOL_TIERS
+
+        current_tier = self.config.tool_tier.tier
+        if current_tier != "full":
+            return None  # already on a reduced tier
+
+        tool_stats: dict[str, Any] = await storage.get_tool_stats(brain_id)
+        top_tools = tool_stats.get("top_tools", [])
+        if not top_tools:
+            return None  # no usage data yet
+
+        # Collect NM tool names actually used
+        nm_tools_used = {
+            t["tool_name"]
+            for t in top_tools
+            if t.get("server_name", "").startswith("neural")
+            or t.get("tool_name", "").startswith("nmem_")
+        }
+        if not nm_tools_used:
+            return None
+
+        # Check if usage fits in a smaller tier
+        minimal_tools = TOOL_TIERS["minimal"]
+        standard_tools = TOOL_TIERS["standard"]
+
+        if nm_tools_used <= minimal_tools:
+            return (
+                f"You only use {len(nm_tools_used)} NM tools — all in the 'minimal' tier "
+                f"({len(minimal_tools)} tools). Switch to save ~80% context tokens: "
+                "set [tool_tier] tier = \"minimal\" in config.toml"
+            )
+        elif nm_tools_used <= standard_tools:
+            return (
+                f"You use {len(nm_tools_used)} NM tools — all in the 'standard' tier "
+                f"({len(standard_tools)} tools). Switch to save ~60% context tokens: "
+                "set [tool_tier] tier = \"standard\" in config.toml"
+            )
+
+        return None
 
     async def _health(self, args: dict[str, Any]) -> dict[str, Any]:
         """Run brain health diagnostics."""
