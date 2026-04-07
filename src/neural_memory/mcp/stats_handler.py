@@ -283,13 +283,13 @@ class StatsHandler:
             return (
                 f"You only use {len(nm_tools_used)} NM tools — all in the 'minimal' tier "
                 f"({len(minimal_tools)} tools). Switch to save ~80% context tokens: "
-                "set [tool_tier] tier = \"minimal\" in config.toml"
+                'set [tool_tier] tier = "minimal" in config.toml'
             )
         elif nm_tools_used <= standard_tools:
             return (
                 f"You use {len(nm_tools_used)} NM tools — all in the 'standard' tier "
                 f"({len(standard_tools)} tools). Switch to save ~60% context tokens: "
-                "set [tool_tier] tier = \"standard\" in config.toml"
+                'set [tool_tier] tier = "standard" in config.toml'
             )
 
         return None
