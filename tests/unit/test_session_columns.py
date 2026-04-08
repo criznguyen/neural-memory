@@ -51,9 +51,7 @@ class TestColumnFiberCreation:
     def make_ctx(self) -> PipelineContext:
         """Build a PipelineContext with 5 neurons and synapses."""
         anchor = Neuron.create(content="anchor content", type=NeuronType.CONCEPT)
-        entities = [
-            Neuron.create(content=f"entity-{i}", type=NeuronType.ENTITY) for i in range(3)
-        ]
+        entities = [Neuron.create(content=f"entity-{i}", type=NeuronType.ENTITY) for i in range(3)]
         synapse = Synapse.create(source_id=anchor.id, target_id=entities[0].id, type="related")
 
         ctx = PipelineContext(
@@ -251,5 +249,3 @@ class TestColumnFamiliarityRecall:
         hits = sum(1 for t in q_tokens if t in summary)
 
         assert hits == 0
-
-
