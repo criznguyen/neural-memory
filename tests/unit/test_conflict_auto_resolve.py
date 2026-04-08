@@ -38,6 +38,7 @@ def _make_neuron(
     neuron.created_at = created_at or utcnow()
     neuron.content = "We use PostgreSQL"
     neuron.metadata = metadata or {}
+    neuron.grounded = False  # Default: not grounded (avoids Rule 0 auto-resolve)
     return neuron
 
 
