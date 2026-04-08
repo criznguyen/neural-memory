@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.42.0] — 2026-04-09
+
+### Added
+
+- **Causal auto-inclusion** — recalled memories with CAUSED_BY/LEADS_TO synapses automatically include their causal chain as supporting context. Traces both causes and effects (max 2 hops), deduplicates across fibers, and respects a 20% token budget cap
+- **Anti-redundancy attention set** — session-scoped tracking of surfaced fiber IDs (FIFO@500 with O(1) lookup). Previously surfaced fibers receive a 0.3x multiplicative penalty on repeat queries, preventing the same memories from dominating every recall
+- **Cascade staleness propagation** — when a fact is superseded via conflict resolution, downstream causal neurons and their fibers are automatically marked stale via BFS through LEADS_TO synapses (weight-gated, max 3 hops). Respects `cascade_staleness_enabled` config flag
+- **Stratum-aware MMR diversity** — recall results now span multiple lifecycle stages (episodic/consolidating/semantic/archival) with a 40% cap per stratum, preventing any single memory layer from dominating results
+- **Temporal neighborhood queries** — `query_temporal_neighborhood(fiber_id, window_hours)` finds chronologically adjacent memories within a configurable time window
+
+### Improved
+
+- **Session state eager creation** — `get_or_create()` used instead of `get()` for session state in retrieval pipeline, ensuring anti-redundancy works from the very first query
+- **Familiarity path records surfaced fibers** — early-exit via familiarity fallback now properly records matched fibers in the attention set
+- **Causal supplement dedup** — `format_causal_supplement()` deduplicates neurons across chains to prevent repeated content in output
+
+### Tests
+
+- 36 new tests: causal inclusion (8), anti-redundancy attention set (7), causal recall integration (8), cascade invalidation (3), stratum MMR config (5), temporal neighborhood (5)
+
 ## [4.41.0] — 2026-04-09
 
 ### Added
