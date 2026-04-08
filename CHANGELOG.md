@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.38.0] — 2026-04-08
+
+### Added
+
+- **Session cortical columns** — cortical column episodic binding (Mountcastle 1957): encoding now creates "column" fibers that aggregate all neurons from a session into a single searchable unit. Column fibers get 1.3x score boost in retrieval and enable a new familiarity Strategy C (summary keyword search) when both activation-based and keyword-based recall fail. Gated behind `session_columns_enabled` config flag (default: True)
+
+### Tests
+
+- 11 new tests for column fiber creation, config flag, score boost, summary keyword matching, and truncation
+
 ## [4.37.0] — 2026-04-08
 
 ### Added
