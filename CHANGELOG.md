@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.37.0] — 2026-04-08
+
+### Added
+
+- **Adaptive density scaling** — homeostatic synaptic scaling (Turrigiano 2008) for large graphs: density-aware stabilization noise floor, entropy-normalized sufficiency gate, and adaptive lateral inhibition K. All gated behind `graph_density_scaling_enabled` config flag (default: True)
+
+### Tests
+
+- 12 new tests for density-aware stabilization, entropy normalization, and adaptive K scaling
+
 ## [4.36.0] — 2026-04-08
 
 ### Added
