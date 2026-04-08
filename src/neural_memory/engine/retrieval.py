@@ -548,6 +548,26 @@ class ReflexPipeline:
         except Exception:
             logger.debug("Gate calibration fetch failed (non-critical)", exc_info=True)
 
+        # 4.5 Goal-directed recall: compute proximity to active goals (early, shared with familiarity)
+        _goal_proximity: dict[str, float] = {}
+        if getattr(self._config, "goal_proximity_boost", 0.0) > 0:
+            try:
+                from neural_memory.engine.goal_proximity import (
+                    compute_goal_proximity,
+                    find_active_goals,
+                )
+
+                active_goals = await find_active_goals(self._storage)
+                if active_goals:
+                    goal_ids = [g.id for g in active_goals]
+                    _goal_proximity = await compute_goal_proximity(
+                        self._storage,
+                        goal_ids,
+                        max_hops=getattr(self._config, "goal_max_hops", 3),
+                    )
+            except Exception:
+                logger.debug("Goal proximity computation failed", exc_info=True)
+
         _sufficiency = check_sufficiency(
             activations=activations,
             anchor_sets=anchor_sets,
@@ -577,6 +597,7 @@ class ReflexPipeline:
                     start_time=start_time,
                     phase_timings=_phase_timings,
                     sufficiency_gate=_sufficiency.gate,
+                    goal_proximity=_goal_proximity,
                 )
                 if _fam_result is not None:
                     # Flush pending writes before returning familiarity result
@@ -676,26 +697,6 @@ class ReflexPipeline:
                 _session_topics = {t for t, w in top_topics.items() if w > 0.3}
             except Exception:
                 pass
-        # 5.5 Goal-directed recall: compute proximity to active goals
-        _goal_proximity: dict[str, float] = {}
-        if getattr(self._config, "goal_proximity_boost", 0.0) > 0:
-            try:
-                from neural_memory.engine.goal_proximity import (
-                    compute_goal_proximity,
-                    find_active_goals,
-                )
-
-                active_goals = await find_active_goals(self._storage)
-                if active_goals:
-                    goal_ids = [g.id for g in active_goals]
-                    _goal_proximity = await compute_goal_proximity(
-                        self._storage,
-                        goal_ids,
-                        max_hops=getattr(self._config, "goal_max_hops", 3),
-                    )
-            except Exception:
-                logger.debug("Goal proximity computation failed", exc_info=True)
-
         fibers_matched = await self._find_matching_fibers(
             activations,
             valid_at=valid_at,
@@ -1467,6 +1468,7 @@ class ReflexPipeline:
         start_time: float,
         phase_timings: dict[str, float],
         sufficiency_gate: str,
+        goal_proximity: dict[str, float] | None = None,
     ) -> RetrievalResult | None:
         """Familiarity-based recall — weaker signal, lower confidence.
 
@@ -1476,7 +1478,6 @@ class ReflexPipeline:
         """
         max_fibers = self._config.familiarity_max_fibers
         confidence_cap = self._config.familiarity_confidence_cap
-
         fibers_matched: list[Fiber] = []
 
         # Strategy A: We have activations but they were too weak for sufficiency.
@@ -1498,7 +1499,7 @@ class ReflexPipeline:
                     query_tokens=query_tokens,
                     tag_mode=tag_mode,
                     created_before=as_of,
-                    goal_proximity=_goal_proximity,
+                    goal_proximity=goal_proximity,
                 )
 
         # Strategy B: No activations at all (no_anchors / empty_landscape).
@@ -1531,7 +1532,7 @@ class ReflexPipeline:
                             query_tokens=query_tokens,
                             tag_mode=tag_mode,
                             created_before=as_of,
-                            goal_proximity=_goal_proximity,
+                            goal_proximity=goal_proximity,
                         )
                         # Update activations for subgraph extraction
                         activations = new_activations
