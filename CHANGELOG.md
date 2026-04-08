@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.40.0] — 2026-04-08
+
+### Added
+
+- **Grounded neurons** — canonical truth anchors inspired by hippocampal reference frames. Grounded neurons resist decay in lifecycle, auto-win conflicts in auto-resolve (Rule 0), and skip conflict resolution entirely. Metadata-backed (`_grounded`, `_confidence`) for zero-migration compatibility across all storage backends
+- **Pin-to-ground wiring** — `nmem_pin` now automatically grounds anchor neurons when pinning (sets `grounded=True`, `confidence=1.0`) and ungrounds when unpinning
+
+### Tests
+
+- 10 new tests for grounded neuron model properties, conflict auto-resolve Rule 0, and pin grounding behavior
+
 ## [4.39.0] — 2026-04-08
 
 ### Added
