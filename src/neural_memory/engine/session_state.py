@@ -93,6 +93,10 @@ class SessionState:
     active_goal_ids: list[str] = field(default_factory=list)
     session_intent: str | None = None
 
+    # Attention set: tracks surfaced fiber IDs for anti-redundancy
+    surfaced_fiber_ids: list[str] = field(default_factory=list)
+    _surfaced_set: set[str] = field(default_factory=set)
+
     @property
     def priming_hit_rate(self) -> float:
         """Fraction of primed neurons that appeared in final results."""
@@ -175,6 +179,34 @@ class SessionState:
                     decayed[normalized] = decayed.get(normalized, 0.0) + alpha
 
         self.topic_ema = decayed
+
+    # ── Attention set (anti-redundancy) ─────────────────────────────────
+
+    _MAX_SURFACED = 500
+
+    def record_surfaced(self, fiber_ids: list[str]) -> None:
+        """Record fiber IDs that were surfaced in a recall result.
+
+        Maintains FIFO ordering — oldest entries are evicted when the
+        attention set exceeds _MAX_SURFACED.
+        """
+        for fid in fiber_ids:
+            if fid not in self._surfaced_set:
+                self.surfaced_fiber_ids.append(fid)
+                self._surfaced_set.add(fid)
+        # FIFO eviction: trim from front
+        overflow = len(self.surfaced_fiber_ids) - self._MAX_SURFACED
+        if overflow > 0:
+            evicted = self.surfaced_fiber_ids[:overflow]
+            self.surfaced_fiber_ids = self.surfaced_fiber_ids[overflow:]
+            for eid in evicted:
+                self._surfaced_set.discard(eid)
+
+    def is_surfaced(self, fiber_id: str) -> bool:
+        """Check if a fiber was previously surfaced in this session."""
+        return fiber_id in self._surfaced_set
+
+    # ── Intent seeding ────────────────────────────────────────────────
 
     def seed_intent(self, intent: str) -> None:
         """Seed topic EMA from a declared session intent.

@@ -171,6 +171,14 @@ class BrainConfig:
     # Goal-directed recall (prefrontal cortex top-down attention modulation)
     goal_proximity_boost: float = 0.25
     goal_max_hops: int = 3
+    # Causal integration: auto-include causal chains + anti-redundancy
+    causal_auto_include: bool = True
+    causal_auto_include_max_hops: int = 2
+    anti_redundancy_penalty: float = 0.3
+    # Cascade staleness: propagate stale marks through causal graph
+    cascade_staleness_enabled: bool = True
+    # Stratum-aware MMR diversity: cap per lifecycle stage
+    stratum_diversity_cap: float = 0.4  # max 40% of results from one stratum
 
     def with_updates(self, **kwargs: Any) -> BrainConfig:
         """Create a new config with updated values."""
