@@ -57,7 +57,7 @@ class BrainConfig:
     habit_min_frequency: int = 3
     habit_suggestion_min_weight: float = 0.8
     habit_suggestion_min_count: int = 5
-    embedding_enabled: bool = False
+    embedding_enabled: bool = True
     embedding_provider: str = "sentence_transformer"
     embedding_model: str = "all-MiniLM-L6-v2"
     embedding_similarity_threshold: float = 0.7
