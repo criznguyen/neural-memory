@@ -5,9 +5,9 @@
 # ═══════════════════════════════════════════════════
 ---
 brain: my-brain.v2
-updated: 2026-03-31T09:29:32
-neurons: 4312
-synapses: 35732
+updated: 2026-04-10T12:19:17
+neurons: 3780
+synapses: 13970
 token_budget: 1200
 depth_available: [surface, detail, deep]
 ---
@@ -17,83 +17,110 @@ depth_available: [surface, detail, deep]
 # Agent: scan this section to understand the knowledge landscape.
 # Format: [id] content (type) {p:N} →edge→ [target_id_or_text]
 
-[c29] Suggested action: auto-reply:telegram:8576604515 (confidence: 0.85) — blocked… (concept) {p:5}
-  →alias→ "Suggested action: auto-reply:telegram:8576604515…"
-  →alias→ "Suggested action: auto-reply:telegram:8576604515…"
-  →alias→ "Suggested action: auto-reply:telegram:8576604515…"
-  →alias→ "Suggested action: auto-reply:telegram:8576604515…"
-  →alias→ "Suggested action: auto-reply:telegram:8576604515…"
-
-[c1] SHIP FIRST
+[c2] SHIP FIRST
 Brainstorm session 2026-03-01: Analyzed memU (11.6k stars) vs NM.… (concept) {p:6}
-  →involves→ "SHIP FIRST"
-  →related_to→ "SHIP FIRST"
-  →related_to→ "SHIP FIRST"
-  →related_to→ "SHIP FIRST"
-  →involves→ "output"
+  →involves→ "StepContext"
+  →involves→ "DECISION"
+  →involves→ "LLM"
+  →involves→ "tool_memory"
 
-[c2] [SESSION] Project: Neural Memory
+[c3] [SESSION] Project: Neural Memory
 Turns: 11 | Cost: $42.618 | Duration:… (concept) {p:6}
   →has_value→ "Cost = $42.618"
   →involves→ "Cost = $42.618"
   →involves→ "$42.618"
   →involves→ "Frontend"
-  →involves→ "với debug output"
+  →co_occurs→ "[SESSION] Project: Neural Memory
+Turns: 4 | Cost: $41.903…"
 
-[c3] [RESEARCH] VoltAgent/awesome-codex-subagents
+[c4] [SESSION] Project: Neural Memory
+Turns: 42 | Cost: $59.421 | Duration:… (concept) {p:6}
+  →involves→ "CommandPalette"
+  →has_value→ "[SESSION] Project = Neural Memory
+Turns: 42"
+  →involves→ "[SESSION] Project = Neural Memory
+Turns: 42"
+  →related_to→ "[SESSION] Project = Neural Memory
+Turns: 42"
+  →has_value→ "Duration = 350s
 
-URL:… (concept) {p:6}
-  →related_to→ "codex subagents"
-  →related_to→ "voltagent awesome"
-  →related_to→ "research voltagent"
-  →related_to→ "research voltagent"
-  →related_to→ "awesome codex"
+Key exchanges:
+A: Now the Vietnamese…"
 
-[c4] Suggested action: auto-reply:telegram:8576604515 (confidence: 0.90) — blocked… (concept) {p:6}
-  →alias→ "Suggested action: auto-reply:telegram:8576604515…"
-  →alias→ "Suggested action: auto-reply:telegram:8576604515…"
-  →alias→ "Suggested action: auto-reply:telegram:8576604515…"
-  →alias→ "Suggested action: auto-reply:telegram:8576604515…"
-  →alias→ "Suggested action: auto-reply:telegram:8576604515…"
+[c5] [SESSION] Project: Neural Memory
+Turns: 11 | Cost: $40.029 | Duration:… (concept) {p:6}
+  →has_value→ "[SESSION] Project = Neural Memory
+Turns: 11"
+  →involves→ "[SESSION] Project = Neural Memory
+Turns: 11"
+  →related_to→ "[SESSION] Project = Neural Memory
+Turns: 11"
+  →has_value→ "A2 = File Watcher"
+  →involves→ "A2 = File Watcher"
+
+[c6] [SESSION] Project: Companion
+Turns: 39 | Cost: $21.860 | Duration: 618s
+
+Key… (concept) {p:6}
+  →involves→ "check unused imports:"
+  →has_value→ "Duration = 618s
+
+Key exchanges:
+A: Now find where the tab…"
+  →involves→ "Duration = 618s
+
+Key exchanges:
+A: Now find where the tab…"
+
+[c7] [SESSION] Project: Neural Memory
+Turns: 8 | Cost: $38.261 | Duration: 88s
+
+Key… (concept) {p:6}
+  →involves→ "$9"
+  →involves→ "ProGate"
+  →involves→ "$19"
 
 # ── CLUSTERS ───────────────────────────────────────
 # Auto-detected topic groups from brain.db entity co-occurrence.
 # Agent: use clusters to scope recall queries.
 
-@ship: [00a0abe8-fd25-4045-967c-af10d9f9285b, 0128c028-f8f8-4b04-96ba-f5a71595b663] "SHIP FIRST, SHIP FIRST
-Brainstorm session 2026-03-01"
-@suggested: [04eff891-f62a-4c6e-8c5f-a01b2ac0668b, 07104f8a-45e5-4a9a-bf09-be4984e80743, 08fa5c17-e064-4fb3-88e6-54e1703c0627] "Suggested action: auto-reply:telegram:80"
+@session: [01053702-2f08-4b84-bb07-9503196ea0dc, 05d6c659-ab07-4ced-a1cf-f2eb5380b158] "[SESSION] Project = Neural Memory
+Turns:, [SESSION] Project: Neural Memory
+Turns: "
+@distribution: [027937c0-6799-42e9-800f-5c87310ac48c, 097b4aa6-9166-448c-9d54-1d012501c0f3] "Distribution, Minor"
 
 # ── SIGNALS ────────────────────────────────────────
 # Active alerts, unresolved items, pending decisions.
 # Agent: check this FIRST each session for urgent context.
 
-~ [agent:claude-code, auto tier, engine hot, features, features auto]
-~ [agent:claude-code, decision, decision intelligence, decision tracking, intelligence structured]
-~ [_structured:key_value, agent:claude-code, decisions, get_storage_class, integration]
-! [agent:claude-code, coffee project, io coffee, io-coffee, mvp]
-~ [agent:claude-code, coffee project, io coffee, io-coffee, momo]
-~ [agent:claude-code, business cafe, coffee project, dual, dual business]
-~ [agent:claude-code, brand color, branding, coffee project, design-system]
-~ [agent:claude-code, architecture, chose vercel, coffee project, hosting]
-~ [agent:claude-code, error, error missing, lint config, missing]
-! [$30.374, _structured:key_value, auto-summary, cost duration, numbers]
+~ [_decision:chosen:karpathy llm wiki pattern (local filesystem + llm, agent:claude-code, apr,…
+~ [agent:claude-code, check nh, error, error message, message]
+! [$33.323, _structured:key_value, auto-summary, ci quality gates, companion turns]
+! [$4.768, _structured:key_value, auto-summary, brain_package, git workflows]
+! [$3.213, _structured:key_value, auto-summary, neural memory turns, project neural memory]
+! [$2.813, _structured:key_value, auto-summary, brain_ratings, brainregistryclient]
+! [$0.494, _structured:key_value, auto-summary, neural memory turns, postgresql]
+! [$29.793, _structured:key_value, agent operational health monitor, auto-summary, companion turns]
+! [$29.615, _structured:key_value, auto-summary, handlestop, only]
+! [$16.2k, $3.5k, $6.9k, $9.4k, $95.189]
 
 # ── DEPTH MAP ──────────────────────────────────────
 # When surface isn't enough, this tells agent WHERE to dig.
 # Format: [id] → depth_hint (context)
 
-[c1] → NEEDS_DEEP (68 synapses in brain.db, recall "SHIP FIRST
+[c2] → NEEDS_DEEP (13 synapses in brain.db, recall "SHIP FIRST
 Brainstorm session…")
-[c2] → NEEDS_DEEP (19 synapses in brain.db, recall "[SESSION] Project: Neural…")
-[c3] → NEEDS_DETAIL (12 total synapses, recall "[RESEARCH] VoltAgent/awesome-codex-suba…")
-[c4] → NEEDS_DEEP (19 synapses in brain.db, recall "Suggested action: auto-reply:telegram:8…")
-[c29] → NEEDS_DEEP (19 synapses in brain.db, recall "Suggested action: auto-reply:telegram:8…")
+[c3] → NEEDS_DEEP (18 synapses in brain.db, recall "[SESSION] Project: Neural…")
+[c4] → NEEDS_DEEP (22 synapses in brain.db, recall "[SESSION] Project: Neural…")
+[c5] → NEEDS_DEEP (28 synapses in brain.db, recall "[SESSION] Project: Neural…")
+[c6] → NEEDS_DEEP (18 synapses in brain.db, recall "[SESSION] Project: Companion
+Turns: 39…")
+[c7] → NEEDS_DEEP (18 synapses in brain.db, recall "[SESSION] Project: Neural…")
 
 # ── META ───────────────────────────────────────────
 # Stats for agent to gauge brain richness
 
 coverage: 0.01
-staleness: 0.08
-last_consolidation: 2026-03-31T09:29:32
-top_entities: [SHIP, [SESSION], [RESEARCH], Suggested, SHIP]
+staleness: 0.11
+last_consolidation: 2026-04-10T12:19:17
+top_entities: [[SESSION], [SESSION], [SESSION], $82.592, E2E]
