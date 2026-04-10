@@ -200,6 +200,10 @@ async def query_memory(
                     )
 
             if fibers_for_budget:
+                # Extract query terms for context compiler (dedup/rescore step).
+                _budget_query_terms: list[str] = [
+                    w for w in request.query.split() if len(w) > 2
+                ]
                 budgeted_ctx, _, allocation = await format_context_budgeted(
                     storage=storage,
                     activations=activations_for_budget,
@@ -207,6 +211,7 @@ async def query_memory(
                     max_tokens=min(request.recall_token_budget, 100_000),
                     budget_config=budget_cfg,
                     clean_for_prompt=request.clean_for_prompt,
+                    query_terms=_budget_query_terms,
                 )
                 context = budgeted_ctx
                 extra_metadata["budget"] = format_budget_report(allocation)

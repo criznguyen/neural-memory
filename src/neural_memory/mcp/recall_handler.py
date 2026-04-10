@@ -375,6 +375,11 @@ class RecallHandler:
                     except Exception:
                         pass
 
+                    # Extract query terms for context compiler (dedup/rescore step).
+                    # Use the effective_query so injected session context is included.
+                    _recall_query_terms: list[str] = [
+                        w for w in effective_query.split() if len(w) > 2
+                    ]
                     budgeted_ctx, _, allocation = await format_context_budgeted(
                         storage=storage,
                         activations=dummy_activations,
@@ -384,6 +389,7 @@ class RecallHandler:
                         brain_id=brain_id,
                         budget_config=budget_cfg,
                         clean_for_prompt=clean_for_prompt,
+                        query_terms=_recall_query_terms,
                     )
 
                     from dataclasses import replace as _dc_replace
