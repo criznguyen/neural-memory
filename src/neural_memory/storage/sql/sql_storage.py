@@ -49,6 +49,7 @@ from neural_memory.storage.sql.mixins.sync_state import SyncStateMixin
 from neural_memory.storage.sql.mixins.tool_events import ToolEventsMixin
 from neural_memory.storage.sql.mixins.training_files import TrainingFilesMixin
 from neural_memory.storage.sql.mixins.typed_memory import TypedMemoryMixin
+from neural_memory.storage.sql.mixins.vector_search import VectorSearchMixin
 from neural_memory.storage.sql.mixins.versioning import VersioningMixin
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,7 @@ class SQLStorage(
     SyncStateMixin,
     ToolEventsMixin,
     TrainingFilesMixin,
+    VectorSearchMixin,
     VersioningMixin,
     # ABC last — mixins satisfy abstract methods
     NeuralStorage,
@@ -98,6 +100,7 @@ class SQLStorage(
         self._dialect = dialect
         self._current_brain_id: str | None = None
         self._neuron_cache = NeuronLookupCache(ttl_seconds=30.0, max_entries=500)
+        self._init_vector_search()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -140,6 +143,7 @@ class SQLStorage(
 
     async def close(self) -> None:
         """Close the dialect connection(s)."""
+        self._close_vector_index()
         await self._dialect.close()
         logger.debug("SQLStorage closed")
 
@@ -154,6 +158,8 @@ class SQLStorage(
 
     def set_brain(self, brain_id: str) -> None:
         """Set the current brain context for operations."""
+        if brain_id != self._current_brain_id:
+            self._close_vector_index()  # Each brain has its own sidecar
         self._current_brain_id = brain_id
 
     def _get_brain_id(self) -> str:

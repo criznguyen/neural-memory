@@ -358,6 +358,17 @@ class MemoryEncoder:
             dedup_pipeline=self._dedup_pipeline,
         )
 
+        # Append EmbeddingStep if embedding is enabled (non-blocking, last step)
+        if pipeline is None and getattr(config, "embedding_enabled", False):
+            try:
+                from neural_memory.engine.semantic_discovery import _create_provider
+                from neural_memory.engine.steps.embedding_step import EmbeddingStep
+
+                provider = _create_provider(config)
+                self._pipeline._steps.append(EmbeddingStep(embedding_provider=provider))
+            except (ImportError, Exception):
+                pass  # Embedding provider not available — skip
+
     @property
     def pipeline(self) -> Pipeline:
         """Access the encoding pipeline (read-only)."""
