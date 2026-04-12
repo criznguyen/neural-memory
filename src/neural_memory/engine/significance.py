@@ -147,7 +147,7 @@ async def score_significance(
         if surprise == 0.0:
             boost = -2.0
 
-    adjusted = min(max(int(base_priority + boost), 1), 10)
+    adjusted = min(max(round(base_priority + boost), 1), 10)
 
     logger.debug(
         "Significance: type=%s surprise=%.2f correction=%s boost=%.1f priority=%d->%d",

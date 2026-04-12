@@ -553,12 +553,16 @@ class AutoHandler:
         """
         from neural_memory.engine.significance import score_significance
 
-        storage = await self.get_storage()
-        brain_id = storage.brain_id
-        if not brain_id:
-            return items
-        brain = await storage.get_brain(brain_id)
-        if not brain:
+        try:
+            storage = await self.get_storage()
+            brain_id = storage.brain_id
+            if not brain_id:
+                return items
+            brain = await storage.get_brain(brain_id)
+            if not brain:
+                return items
+        except Exception:
+            logger.debug("Significance: storage unavailable, skipping scoring", exc_info=True)
             return items
 
         config = self.config.proactive
