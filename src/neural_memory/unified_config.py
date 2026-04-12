@@ -106,6 +106,41 @@ class AutoConfig:
         )
 
 
+@dataclass
+class ProactiveConfig:
+    """Proactive memory hints configuration.
+
+    Controls auto-injection of primed memories into tool responses.
+    When enabled, recall/recap/context responses include proactive_hints
+    with related memories the agent didn't explicitly ask for.
+    """
+
+    enabled: bool = True
+    max_hints: int = 3
+    max_hint_chars: int = 500
+    min_activation: float = 0.3
+    skip_high_confidence: float = 0.9
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "max_hints": self.max_hints,
+            "max_hint_chars": self.max_hint_chars,
+            "min_activation": self.min_activation,
+            "skip_high_confidence": self.skip_high_confidence,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ProactiveConfig:
+        return cls(
+            enabled=data.get("enabled", True),
+            max_hints=data.get("max_hints", 3),
+            max_hint_chars=data.get("max_hint_chars", 500),
+            min_activation=data.get("min_activation", 0.3),
+            skip_high_confidence=data.get("skip_high_confidence", 0.9),
+        )
+
+
 @dataclass(frozen=True)
 class EmbeddingSettings:
     """Settings for embedding-based cross-language recall."""
@@ -1291,6 +1326,9 @@ class UnifiedConfig:
     # PostgreSQL config (used when storage_backend == "postgres")
     postgres: PostgresConfig = field(default_factory=PostgresConfig)
 
+    # Proactive memory hints
+    proactive: ProactiveConfig = field(default_factory=ProactiveConfig)
+
     # MCP response compaction
     response: ResponseConfig = field(default_factory=ResponseConfig)
 
@@ -1393,6 +1431,7 @@ class UnifiedConfig:
             ),
             falkordb=FalkorDBConfig.from_dict(data.get("falkordb", {})),
             postgres=PostgresConfig.from_dict(data.get("postgres", {})),
+            proactive=ProactiveConfig.from_dict(data.get("proactive", {})),
             response=ResponseConfig.from_dict(data.get("response", {})),
             budget=BudgetRetrievalConfig.from_dict(data.get("budget", {})),
             json_output=data.get("cli", {}).get("json_output", False),
@@ -1608,6 +1647,14 @@ class UnifiedConfig:
             f"max_watched_dirs = {self.watcher.max_watched_dirs}",
             f'memory_type = "{_sanitize_toml_str(self.watcher.memory_type)}"',
             f'domain_tag = "{_sanitize_toml_str(self.watcher.domain_tag)}"',
+            "",
+            "# Proactive memory hints",
+            "[proactive]",
+            f"enabled = {'true' if self.proactive.enabled else 'false'}",
+            f"max_hints = {self.proactive.max_hints}",
+            f"max_hint_chars = {self.proactive.max_hint_chars}",
+            f"min_activation = {self.proactive.min_activation}",
+            f"skip_high_confidence = {self.proactive.skip_high_confidence}",
             "",
             "# MCP tool tier (minimal/standard/full)",
             "[tool_tier]",

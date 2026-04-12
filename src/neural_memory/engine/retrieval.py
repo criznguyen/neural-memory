@@ -908,6 +908,8 @@ class ReflexPipeline:
                         "hit_rate": round(_prim_metrics.hit_rate, 4),
                         "aggressiveness": round(_prim_metrics.aggressiveness_multiplier, 2),
                     }
+                    # Store full PrimingResult for proactive hint selection
+                    result.metadata["_priming_result"] = _priming_result
             except Exception:
                 logger.debug("Priming cache update failed (non-critical)", exc_info=True)
 

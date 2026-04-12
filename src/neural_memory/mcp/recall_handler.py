@@ -770,6 +770,17 @@ class RecallHandler:
         if alert_info:
             response.update(alert_info)
 
+        # Proactive hints: surface primed memories the agent didn't ask for
+        if self.config.proactive.enabled:
+            try:
+                proactive_hints = await self._get_proactive_hints(
+                    result, storage,
+                )
+                if proactive_hints:
+                    response["proactive_hints"] = proactive_hints
+            except Exception:
+                logger.debug("Proactive hint generation failed (non-critical)", exc_info=True)
+
         return response
 
     async def _cross_brain_recall(
@@ -1303,3 +1314,54 @@ class RecallHandler:
             result["session_summary"] = "--- " + " | ".join(summary_parts) + " ---"
 
         return result
+
+    async def _get_proactive_hints(
+        self,
+        result: Any,
+        storage: NeuralStorage,
+    ) -> list[dict[str, Any]] | None:
+        """Extract proactive hints from priming data in recall result.
+
+        Returns formatted hint list for MCP response, or None if no hints.
+        """
+        from neural_memory.engine.proactive import (
+            format_hints_for_response,
+            select_proactive_hints,
+        )
+
+        metadata = result.metadata or {}
+
+        # Skip if recall confidence is already high (agent got good answers)
+        confidence = getattr(result, "confidence", 0.0)
+        if confidence >= self.config.proactive.skip_high_confidence:
+            return None
+
+        # Get PrimingResult from metadata (stored by retrieval.py)
+        priming_result = metadata.get("_priming_result")
+        if priming_result is None:
+            return None
+
+        # Collect neuron IDs already in the result to avoid redundancy
+        result_neuron_ids: set[str] = set()
+        fibers = getattr(result, "fibers", None)
+        if fibers and isinstance(fibers, list):
+            for fiber in fibers:
+                nids = getattr(fiber, "neuron_ids", None) or []
+                result_neuron_ids.update(nids)
+                anchor = getattr(fiber, "anchor_neuron_id", None)
+                if anchor:
+                    result_neuron_ids.add(anchor)
+
+        hints = await select_proactive_hints(
+            priming_result=priming_result,
+            storage=storage,
+            result_neuron_ids=result_neuron_ids,
+            max_hints=self.config.proactive.max_hints,
+            max_chars=self.config.proactive.max_hint_chars,
+            min_activation=self.config.proactive.min_activation,
+        )
+
+        if not hints:
+            return None
+
+        return format_hints_for_response(hints)
