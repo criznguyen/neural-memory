@@ -106,7 +106,7 @@ class AutoConfig:
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class ProactiveConfig:
     """Proactive memory hints configuration.
 

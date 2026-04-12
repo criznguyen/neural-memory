@@ -261,12 +261,10 @@ class EternalHandler:
         the user might work on, based on historical query patterns.
         Returns topic names or None if insufficient data.
         """
-        import os
-
         from neural_memory.engine.session_state import SessionManager
 
-        source = os.environ.get("NEURALMEMORY_SOURCE", "mcp")[:256]
-        session_id = f"{source}-{id(self)}"
+        # Use same session_id format as recall_handler (mcp-{id})
+        session_id = f"mcp-{id(self)}"
         session_state = SessionManager.get_instance().get(session_id)
 
         if session_state is None or session_state.query_count < 3:

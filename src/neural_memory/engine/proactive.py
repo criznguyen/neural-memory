@@ -28,6 +28,7 @@ DEFAULT_MAX_HINTS = 3
 DEFAULT_MAX_HINT_CHARS = 500
 DEFAULT_MIN_ACTIVATION = 0.3
 DEFAULT_SKIP_HIGH_CONFIDENCE = 0.9
+MIN_USEFUL_HINT_CHARS = 20  # Skip hints truncated below this length
 
 
 # ── Data Models ───────────────────────────────────────────────────────
@@ -123,7 +124,11 @@ async def select_proactive_hints(
             # Truncate individual hint if needed
             remaining_budget = max_chars - total_chars
             if len(content) > remaining_budget:
+                if remaining_budget < MIN_USEFUL_HINT_CHARS:
+                    break  # Not enough room for a useful hint
                 content = content[:remaining_budget].rsplit(" ", 1)[0] + "..."
+                if len(content) < MIN_USEFUL_HINT_CHARS:
+                    continue  # Truncation left too little
 
             hint = ProactiveHint(
                 neuron_id=nid,
@@ -144,26 +149,22 @@ async def select_proactive_hints(
 def _build_source_map(priming_result: PrimingResult) -> dict[str, str]:
     """Determine the primary priming source for each neuron.
 
-    When a neuron appears in multiple priming sources, attribute it to
-    the source with the highest count (most specific signal wins).
+    Since PrimingResult.source_counts only has per-source neuron counts
+    (not per-neuron attribution), we assign the most-represented source
+    as the default, with priority tie-breaking for equal counts.
 
-    Priority order for tie-breaking: habit > co_activation > topic > cache
-    (habit is most predictive, cache is most generic).
+    The source label is informational (shown to agent), not functional.
     """
     source_priority = {"habit": 4, "co_activation": 3, "topic": 2, "cache": 1}
     source_map: dict[str, str] = {}
 
-    # Since PrimingResult.source_counts only has per-source neuron counts
-    # (not per-neuron source attribution), we assign based on the highest-
-    # priority source that contributed. This is an approximation — acceptable
-    # because the source label is informational, not functional.
     if not priming_result.source_counts:
         return source_map
 
-    # Find the highest-priority source that primed neurons
+    # Pick source with most neurons; tie-break by priority
     best_source = max(
         priming_result.source_counts.keys(),
-        key=lambda s: source_priority.get(s, 0),
+        key=lambda s: (priming_result.source_counts[s], source_priority.get(s, 0)),
     )
 
     for nid in priming_result.activation_boosts:

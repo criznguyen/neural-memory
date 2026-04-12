@@ -1343,14 +1343,10 @@ class RecallHandler:
 
         # Collect neuron IDs already in the result to avoid redundancy
         result_neuron_ids: set[str] = set()
-        fibers = getattr(result, "fibers", None)
-        if fibers and isinstance(fibers, list):
-            for fiber in fibers:
-                nids = getattr(fiber, "neuron_ids", None) or []
-                result_neuron_ids.update(nids)
-                anchor = getattr(fiber, "anchor_neuron_id", None)
-                if anchor:
-                    result_neuron_ids.add(anchor)
+        result_neuron_ids.update(getattr(result, "contributing_neurons", None) or [])
+        subgraph = getattr(result, "subgraph", None)
+        if subgraph:
+            result_neuron_ids.update(getattr(subgraph, "neuron_ids", None) or [])
 
         hints = await select_proactive_hints(
             priming_result=priming_result,
