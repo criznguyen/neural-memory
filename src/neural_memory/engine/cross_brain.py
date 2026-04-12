@@ -166,7 +166,11 @@ async def cross_brain_recall(
 
     # Resolve brain names to DB paths
     valid_brains: list[tuple[str, Path]] = []
-    available = set(config.list_brains())
+    # Include global brain in available set if requested
+    from neural_memory.unified_config import GLOBAL_BRAIN_NAME
+
+    needs_global = GLOBAL_BRAIN_NAME in brain_names
+    available = set(config.list_brains(include_global=needs_global))
 
     for name in brain_names:
         if name not in available:

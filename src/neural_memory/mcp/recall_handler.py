@@ -146,6 +146,12 @@ class RecallHandler:
             _require_brain_id,
         )
 
+        # Layer=global: redirect to global brain only
+        if args.get("layer") == "global":
+            from neural_memory.unified_config import GLOBAL_BRAIN_NAME
+
+            return await self._cross_brain_recall(args, [GLOBAL_BRAIN_NAME])
+
         # Cross-brain recall: early return if brains parameter is provided
         brain_names = args.get("brains")
         if brain_names and isinstance(brain_names, list) and len(brain_names) > 0:
@@ -316,6 +322,39 @@ class RecallHandler:
             simhash_threshold=simhash_threshold,
         )
 
+        # ── Layered recall: merge global brain results ──
+        recall_layer = args.get("layer", "auto")
+        layers_used: list[str] = ["project"]
+        global_context: str = ""
+
+        if recall_layer != "project":
+            try:
+                from neural_memory.engine.cross_brain import _query_single_brain
+                from neural_memory.unified_config import GLOBAL_BRAIN_NAME
+
+                global_db = self.config.get_brain_db_path(GLOBAL_BRAIN_NAME)
+                if global_db.exists():
+                    _, _, _, global_ctx = await _query_single_brain(
+                        db_path=global_db,
+                        brain_name=GLOBAL_BRAIN_NAME,
+                        query=effective_query,
+                        depth=depth,
+                        max_tokens=min(max_tokens, 200),
+                    )
+                    if global_ctx:
+                        global_context = global_ctx
+                        layers_used.append("global")
+                        from dataclasses import replace as _dc_replace_layer
+
+                        # F-01 fix: merge even when project context is empty
+                        if result.context:
+                            merged = f"{result.context}\n\n[global] {global_ctx}"
+                        else:
+                            merged = f"[global] {global_ctx}"
+                        result = _dc_replace_layer(result, context=merged)
+            except Exception:
+                logger.debug("Global brain recall failed (non-critical)", exc_info=True)
+
         # Passive auto-capture on long queries
         if self.config.auto.enabled and len(query) >= 50:
             await self._passive_capture(query)
@@ -400,6 +439,9 @@ class RecallHandler:
 
                     budget_stats = format_budget_report(allocation)
                     # Replace the pipeline-generated context with budget-aware context
+                    # F-02 fix: re-append global context after budget re-format
+                    if global_context:
+                        budgeted_ctx = f"{budgeted_ctx}\n\n[global] {global_context}"
                     result = _dc_replace(result, context=budgeted_ctx)
             except Exception:
                 logger.warning(
@@ -562,6 +604,10 @@ class RecallHandler:
                 "depth_used": result.depth_used.value,
                 "tokens_used": result.tokens_used,
             }
+
+        # Layered recall metadata
+        if len(layers_used) > 1:
+            response["layers"] = layers_used
 
         if budget_stats is not None:
             response["budget_stats"] = budget_stats

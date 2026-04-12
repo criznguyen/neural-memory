@@ -153,6 +153,12 @@ class EternalHandler:
         context_text = await ctx.get_injection(level=1)
         if result.context:
             context_text += f"\n\n## Topic: {topic}\n{result.context}"
+
+        # Layered recall: include global brain preferences/instructions
+        global_section = await self._get_global_recap_context(topic)
+        if global_section:
+            context_text += f"\n\n{global_section}"
+
         response: dict[str, Any] = {
             "context": context_text,
             "topic": topic,
@@ -176,6 +182,12 @@ class EternalHandler:
         """Recap at a specific detail level (1-3)."""
         level = max(1, min(3, level))
         context_text = await ctx.get_injection(level=level)
+
+        # Layered recall: include global preferences/instructions in recap
+        global_section = await self._get_global_recap_context()
+        if global_section:
+            context_text += f"\n\n{global_section}"
+
         token_est = int(len(context_text.split()) * 1.3)
 
         has_feature = False
@@ -292,3 +304,42 @@ class EternalHandler:
                 continue
 
         return predictions if predictions else None
+
+    async def _get_global_recap_context(
+        self, topic: str | None = None
+    ) -> str | None:
+        """Fetch global brain preferences/instructions for recap context.
+
+        Queries the _global brain for cross-project preferences and instructions,
+        returning a formatted section to append to recap context.
+
+        Args:
+            topic: Optional topic to focus the global query on.
+
+        Returns:
+            Formatted string with global preferences, or None if no global brain
+            or no relevant global memories found.
+        """
+        try:
+            from neural_memory.engine.cross_brain import _query_single_brain
+            from neural_memory.unified_config import GLOBAL_BRAIN_NAME
+
+            global_db = self.config.get_brain_db_path(GLOBAL_BRAIN_NAME)
+            if not global_db.exists():
+                return None
+
+            query = topic or "preferences instructions workflow"
+            _, _, _, context = await _query_single_brain(
+                db_path=global_db,
+                brain_name=GLOBAL_BRAIN_NAME,
+                query=query,
+                depth=DepthLevel(1),
+                max_tokens=200,
+            )
+            if not context:
+                return None
+
+            return f"## [global] Cross-project preferences\n{context}"
+        except Exception:
+            logger.debug("Global recap context failed (non-critical)", exc_info=True)
+            return None

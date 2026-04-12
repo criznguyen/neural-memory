@@ -406,6 +406,13 @@ _ALL_TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "Valence is detected at encoding via sentiment analysis. "
                     "Use to find e.g. only frustrations (negative) or breakthroughs (positive).",
                 },
+                "layer": {
+                    "type": "string",
+                    "enum": ["auto", "project", "global"],
+                    "description": "Layer scope: 'auto' (default) merges project + global brains, "
+                    "'project' restricts to current brain only, "
+                    "'global' queries only the global brain.",
+                },
             },
             "required": ["query"],
         },
