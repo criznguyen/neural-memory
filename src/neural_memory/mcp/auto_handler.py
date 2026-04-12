@@ -11,6 +11,7 @@ from neural_memory.mcp.auto_capture import analyze_text_for_memories
 from neural_memory.mcp.constants import MAX_CONTENT_LENGTH
 
 if TYPE_CHECKING:
+    from neural_memory.engine.session_reflection import SessionReflection
     from neural_memory.storage.base import NeuralStorage
     from neural_memory.unified_config import UnifiedConfig
 
@@ -189,7 +190,7 @@ class AutoHandler:
             }
         return response
 
-    async def _run_session_reflection(self) -> Any:
+    async def _run_session_reflection(self) -> SessionReflection | None:
         """Run session-end reflection and save pattern neurons.
 
         Analyzes in-memory session memories, detects patterns, and saves
@@ -252,6 +253,10 @@ class AutoHandler:
             reflection.patterns_found,
             len(reflection.pattern_neurons) + 1,
         )
+
+        # Clear session memories after reflection to prevent unbounded growth
+        # and duplicate reflections on subsequent process calls
+        self._session_memories = []
 
         return reflection
 
@@ -365,6 +370,13 @@ class AutoHandler:
                 for item in redacted
             ]
         )
+        # Track saved memories for session-end reflection
+        if not hasattr(self, "_session_memories"):
+            self._session_memories = []
+        for item, result in zip(redacted, results, strict=False):
+            if "error" not in result:
+                self._session_memories.append(item)
+
         return [
             item["content"][:50]
             for item, result in zip(redacted, results, strict=False)
