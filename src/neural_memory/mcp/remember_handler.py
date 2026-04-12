@@ -796,6 +796,15 @@ class RememberHandler:
             response["conflicts_detected"] = conflicts_detected
             response["message"] += f" ({conflicts_detected} conflict(s) detected)"
 
+        # Déjà vu warnings: surface scar tissue from encode pipeline
+        deja_vu = (result.fiber.metadata or {}).get("_deja_vu")
+        if deja_vu:
+            response["deja_vu_warnings"] = deja_vu
+            response["message"] += (
+                f" ⚠ {len(deja_vu)} déjà vu warning(s): similar content was involved"
+                " in past error/decision chains"
+            )
+
         hint = self._get_maintenance_hint(pulse)
         if hint:
             response["maintenance_hint"] = hint

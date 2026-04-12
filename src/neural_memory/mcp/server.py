@@ -46,6 +46,7 @@ from neural_memory.mcp.milestone_handler import MilestoneHandler
 from neural_memory.mcp.narrative_handler import NarrativeHandler
 from neural_memory.mcp.onboarding_handler import OnboardingHandler
 from neural_memory.mcp.prompt import get_mcp_instructions, get_system_prompt
+from neural_memory.mcp.reflex_handler import ReflexHandler
 from neural_memory.mcp.review_handler import ReviewHandler
 from neural_memory.mcp.scheduled_consolidation_handler import ScheduledConsolidationHandler
 from neural_memory.mcp.session_handler import SessionHandler
@@ -110,6 +111,7 @@ class MCPServer(
     DriftHandler,
     MilestoneHandler,
     GoalHandler,
+    ReflexHandler,
 ):
     """MCP server that exposes NeuralMemory tools.
 
@@ -272,6 +274,7 @@ class MCPServer(
             "nmem_forget",
             "nmem_consolidate",
             "nmem_pin",
+            "nmem_reflex",
             "nmem_goal",
             "nmem_import",
             "nmem_train",
@@ -353,6 +356,7 @@ class MCPServer(
             "nmem_store": self._store,
             "nmem_goal": self._goal,
             "nmem_causal": self._causal,
+            "nmem_reflex": self._reflex,
         }
         handler = dispatch.get(name)
         if handler:

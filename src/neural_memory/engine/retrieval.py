@@ -221,6 +221,7 @@ class ReflexPipeline:
         tag_mode: str = "and",
         as_of: datetime | None = None,
         simhash_threshold: int | None = None,
+        exclude_reflexes: bool = False,
     ) -> RetrievalResult:
         """
         Execute the retrieval pipeline.
@@ -812,6 +813,19 @@ class ReflexPipeline:
         _encryptor = self._get_encryptor()
         _brain_id = self._storage.brain_id or "" if _encryptor else ""
 
+        # ── Reflex injection: prepend always-on neurons before regular context ──
+        _reflex_prefix = ""
+        _reflex_count = 0
+        if not exclude_reflexes:
+            try:
+                reflex_neurons = await self._storage.find_reflex_neurons(limit=50)
+                if reflex_neurons:
+                    _reflex_count = len(reflex_neurons)
+                    _reflex_lines = [f"- {n.content}" for n in reflex_neurons]
+                    _reflex_prefix = "[Reflexes]\n" + "\n".join(_reflex_lines) + "\n\n"
+            except Exception:
+                logger.debug("Reflex injection failed (non-critical)", exc_info=True)
+
         context, tokens_used = await format_context(
             self._storage,
             activations,
@@ -820,6 +834,10 @@ class ReflexPipeline:
             encryptor=_encryptor,
             brain_id=_brain_id,
         )
+
+        if _reflex_prefix:
+            context = _reflex_prefix + context
+
         _phase_timings["reconstruction"] = (time.perf_counter() - start_time) * 1000
 
         latency_ms = (time.perf_counter() - start_time) * 1000
@@ -876,6 +894,7 @@ class ReflexPipeline:
                     nid: round(ar.activation_level, 4) for nid, ar in activations.items()
                 },
                 "phase_timings_ms": _phase_timings,
+                "reflex_count": _reflex_count,
             },
         )
 

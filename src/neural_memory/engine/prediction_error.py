@@ -23,6 +23,8 @@ from neural_memory.extraction.parser import detect_language
 from neural_memory.utils.simhash import hamming_distance, simhash
 
 if TYPE_CHECKING:
+    from typing import Any
+
     from neural_memory.core.brain import BrainConfig
     from neural_memory.core.neuron import Neuron
     from neural_memory.storage.base import NeuralStorage
@@ -216,6 +218,67 @@ async def compute_surprise_bonus(
     return surprise
 
 
+_SCAR_SYNAPSE_TYPES: frozenset[str] = frozenset({"caused_by", "leads_to", "resolved_by"})
+
+# Hamming threshold for déjà vu: tighter than prediction error's 5-30 range.
+# ≤12 means content is structurally very similar to a past error/decision chain.
+_DEJA_VU_HAMMING_THRESHOLD = 12
+
+
+async def detect_deja_vu(
+    content_hash: int,
+    tags: set[str],
+    storage: NeuralStorage,
+) -> list[dict[str, Any]]:
+    """Detect scar tissue — similar content linked to past error/decision chains.
+
+    Searches for neurons with overlapping tags and low SimHash distance,
+    then checks if they participate in causal chains (CAUSED_BY, LEADS_TO,
+    RESOLVED_BY synapses). Returns warnings for content that echoes past mistakes.
+    """
+    if not tags:
+        return []
+
+    tag_list = sorted(tags)[:3]  # fewer tags than surprise_bonus — focused scan
+    seen_ids: set[str] = set()
+    candidates: list[Neuron] = []
+    for tag in tag_list:
+        for n in await storage.find_neurons(content_contains=tag, limit=5):
+            if n.id not in seen_ids:
+                seen_ids.add(n.id)
+                candidates.append(n)
+
+    warnings: list[dict[str, Any]] = []
+    for neuron in candidates[:15]:
+        if not neuron.content_hash or not content_hash:
+            continue
+        dist = hamming_distance(content_hash, neuron.content_hash)
+        if dist > _DEJA_VU_HAMMING_THRESHOLD:
+            continue
+
+        # Similar content found — check for causal chain synapses
+        synapses = await storage.get_synapses(source_id=neuron.id)
+        scar_synapses = [s for s in synapses if s.type in _SCAR_SYNAPSE_TYPES]
+        if not scar_synapses:
+            # Also check incoming
+            synapses_in = await storage.get_synapses(target_id=neuron.id)
+            scar_synapses = [s for s in synapses_in if s.type in _SCAR_SYNAPSE_TYPES]
+
+        if scar_synapses:
+            warnings.append(
+                {
+                    "similar_neuron_id": neuron.id,
+                    "content_preview": neuron.content[:150],
+                    "hamming_distance": dist,
+                    "chain_types": list({s.type for s in scar_synapses}),
+                }
+            )
+            if len(warnings) >= 3:  # cap warnings
+                break
+
+    return warnings
+
+
 @dataclass
 class PredictionErrorStep:
     """Pipeline step that adjusts priority based on prediction error.
@@ -255,5 +318,18 @@ class PredictionErrorStep:
             new_priority = max(1, min(10, int(raw + bonus)))
             ctx.effective_metadata["auto_priority"] = new_priority
             ctx.effective_metadata["_surprise_bonus"] = round(bonus, 2)
+
+        # Déjà vu: detect scar tissue from past error/decision chains
+        try:
+            deja_vu = await detect_deja_vu(
+                content_hash=ctx.content_hash or simhash(ctx.content),
+                tags=ctx.merged_tags or ctx.auto_tags,
+                storage=storage,
+            )
+            if deja_vu:
+                ctx.effective_metadata["_deja_vu"] = deja_vu
+                logger.debug("Déjà vu: %d scar(s) detected", len(deja_vu))
+        except Exception:
+            logger.debug("Déjà vu detection failed (non-critical)", exc_info=True)
 
         return ctx

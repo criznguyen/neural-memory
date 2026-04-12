@@ -94,6 +94,14 @@ class StatsHandler:
         # Storage backend info
         storage_info = self._get_storage_info()
 
+        # Reflex count (non-critical)
+        reflex_count = 0
+        try:
+            reflex_neurons = await storage.find_reflex_neurons(limit=50)
+            reflex_count = len(reflex_neurons)
+        except Exception:
+            logger.debug("Reflex count failed (non-critical)", exc_info=True)
+
         response = {
             "version": __version__,
             "brain": brain.name,
@@ -108,6 +116,7 @@ class StatsHandler:
             "hot_neurons": stats.get("hot_neurons", []),
             "newest_memory": stats.get("newest_memory"),
             "conflicts_active": conflicts_active,
+            "reflex_count": reflex_count,
             "tier_distribution": tier_distribution,
         }
 

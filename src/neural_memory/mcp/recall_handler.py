@@ -307,6 +307,8 @@ class RecallHandler:
             except (ValueError, TypeError):
                 return {"error": f"Invalid simhash_threshold: {args['simhash_threshold']}"}
 
+        exclude_reflexes = bool(args.get("exclude_reflexes", False))
+
         pipeline = ReflexPipeline(storage, brain.config)
         result = await pipeline.query(
             query=effective_query,
@@ -320,6 +322,7 @@ class RecallHandler:
             tag_mode=tag_mode,
             as_of=as_of,
             simhash_threshold=simhash_threshold,
+            exclude_reflexes=exclude_reflexes,
         )
 
         # ── Layered recall: merge global brain results ──
@@ -604,6 +607,27 @@ class RecallHandler:
                 "depth_used": result.depth_used.value,
                 "tokens_used": result.tokens_used,
             }
+
+        # Thought Chains: expose activation paths (opt-in)
+        if args.get("include_paths") and result.metadata:
+            activation_levels = result.metadata.get("activation_levels", {})
+            if activation_levels:
+                # Sort by activation level, take top 5
+                top_ids = sorted(
+                    activation_levels, key=lambda nid: activation_levels[nid], reverse=True
+                )[:5]
+                chains: list[dict[str, Any]] = []
+                for nid in top_ids:
+                    neuron = await storage.get_neuron(nid)
+                    chains.append(
+                        {
+                            "neuron_id": nid,
+                            "content": neuron.content[:200] if neuron else "",
+                            "activation": round(activation_levels[nid], 4),
+                        }
+                    )
+                if chains:
+                    response["thought_chains"] = chains
 
         # Layered recall metadata
         if len(layers_used) > 1:

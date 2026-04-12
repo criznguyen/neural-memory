@@ -172,6 +172,22 @@ class NeuralStorage(ABC):
         """
         ...
 
+    async def find_reflex_neurons(self, limit: int = 50) -> list[Neuron]:
+        """Find neurons flagged as reflexes (always-on) for the current brain.
+
+        Default implementation uses find_neurons + filter. Backends may override
+        with a more efficient query.
+
+        Args:
+            limit: Maximum reflexes to return (capped at 50).
+
+        Returns:
+            Reflex neurons ordered by created_at descending.
+        """
+        # Fallback: scan all neurons — backends should override for efficiency
+        all_neurons = await self.find_neurons(limit=min(limit, 50) * 10)
+        return [n for n in all_neurons if n.reflex][: min(limit, 50)]
+
     @abstractmethod
     async def suggest_neurons(
         self,

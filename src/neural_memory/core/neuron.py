@@ -55,6 +55,22 @@ class Neuron:
     ephemeral: bool = False
 
     @property
+    def reflex(self) -> bool:
+        """Whether this neuron is pinned as a reflex (always-on in recall)."""
+        return bool(self.metadata.get("_reflex", False))
+
+    def with_reflex(self, pinned: bool = True) -> Neuron:
+        """Create a new Neuron with the reflex flag set.
+
+        Args:
+            pinned: Whether to pin (True) or unpin (False) the neuron.
+
+        Returns:
+            New Neuron with updated reflex flag in metadata.
+        """
+        return self.with_metadata(_reflex=pinned)
+
+    @property
     def abstraction_level(self) -> int:
         """Abstraction level (0=unassigned, 1=concrete, 2=abstract, 3=meta)."""
         return int(self.metadata.get("_abstraction_level", 0))

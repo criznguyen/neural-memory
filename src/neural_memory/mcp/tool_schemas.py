@@ -413,6 +413,15 @@ _ALL_TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "'project' restricts to current brain only, "
                     "'global' queries only the global brain.",
                 },
+                "exclude_reflexes": {
+                    "type": "boolean",
+                    "description": "Exclude reflex (always-on) neurons from this recall. Default: false.",
+                },
+                "include_paths": {
+                    "type": "boolean",
+                    "description": "Include activation paths (thought chains) showing how each neuron was reached. "
+                    "Returns top-5 paths with neuron content and hop distance. Default: false.",
+                },
             },
             "required": ["query"],
         },
@@ -998,6 +1007,31 @@ _ALL_TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "description": "Max results for list action (default: 50, max: 200)",
                     "minimum": 1,
                     "maximum": 200,
+                },
+            },
+        },
+    },
+    {
+        "name": "nmem_reflex",
+        "description": "Pin/unpin neurons as reflexes (always-on in every recall). Reflexes bypass spreading activation and appear first in context. "
+        "Use for critical rules, preferences, or constraints that must always be present.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["pin", "unpin", "list"],
+                    "description": "Action: pin neuron as reflex, unpin to remove, or list all reflexes",
+                },
+                "neuron_id": {
+                    "type": "string",
+                    "description": "Neuron ID to pin or unpin (required for pin/unpin, ignored for list)",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results for list action (default: 20, max: 50)",
+                    "minimum": 1,
+                    "maximum": 50,
                 },
             },
         },
