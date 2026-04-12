@@ -206,6 +206,7 @@ en_core_web_lg/
 node_modules/
 package-lock.json
 package.json
+!npm-package/package.json
 
 # Pay-hub (Cloudflare Worker — closed source, separate repo)
 pay-hub/
