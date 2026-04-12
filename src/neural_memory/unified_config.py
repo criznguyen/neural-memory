@@ -120,6 +120,11 @@ class ProactiveConfig:
     max_hint_chars: int = 500
     min_activation: float = 0.3
     skip_high_confidence: float = 0.9
+    # Significance weighting (amygdala boost)
+    significance_enabled: bool = True
+    correction_boost: float = 2.0
+    contradiction_boost: float = 2.5
+    novelty_boost: float = 1.5
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -128,6 +133,10 @@ class ProactiveConfig:
             "max_hint_chars": self.max_hint_chars,
             "min_activation": self.min_activation,
             "skip_high_confidence": self.skip_high_confidence,
+            "significance_enabled": self.significance_enabled,
+            "correction_boost": self.correction_boost,
+            "contradiction_boost": self.contradiction_boost,
+            "novelty_boost": self.novelty_boost,
         }
 
     @classmethod
@@ -138,6 +147,10 @@ class ProactiveConfig:
             max_hint_chars=data.get("max_hint_chars", 500),
             min_activation=data.get("min_activation", 0.3),
             skip_high_confidence=data.get("skip_high_confidence", 0.9),
+            significance_enabled=data.get("significance_enabled", True),
+            correction_boost=data.get("correction_boost", 2.0),
+            contradiction_boost=data.get("contradiction_boost", 2.5),
+            novelty_boost=data.get("novelty_boost", 1.5),
         )
 
 

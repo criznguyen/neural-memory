@@ -508,6 +508,10 @@ class AutoHandler:
                 logger.debug("Auto-redacted %d matches in auto-captured memory", len(matches))
             redacted_eligible.append({**item, "content": redacted})
 
+        # Significance scoring (amygdala boost) — adjust priorities before saving
+        if self.config.proactive.significance_enabled:
+            redacted_eligible = await self._apply_significance(redacted_eligible)
+
         # Tag with session ID for session-end reflection
         session_tag = f"session:{self._get_session_id()}"
 
@@ -538,6 +542,66 @@ class AutoHandler:
             for item, result in zip(redacted_eligible, results, strict=False)
             if "error" not in result
         ]
+
+    async def _apply_significance(
+        self, items: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Score items for significance and adjust priorities.
+
+        Near-duplicate items (surprise=0.0) are filtered out entirely.
+        Other items get priority boosts based on significance signals.
+        """
+        from neural_memory.engine.significance import score_significance
+
+        storage = await self.get_storage()
+        brain_id = storage.brain_id
+        if not brain_id:
+            return items
+        brain = await storage.get_brain(brain_id)
+        if not brain:
+            return items
+
+        config = self.config.proactive
+        scored: list[dict[str, Any]] = []
+        for item in items:
+            try:
+                sig = await score_significance(
+                    content=item["content"],
+                    detected_type=item["type"],
+                    base_priority=item.get("priority", 5),
+                    storage=storage,
+                    brain_config=brain.config,
+                    correction_boost=config.correction_boost,
+                    contradiction_boost=config.contradiction_boost,
+                    novelty_boost=config.novelty_boost,
+                )
+
+                # Skip near-duplicates (adjusted priority <= 2 after penalty)
+                if sig.adjusted_priority <= 2:
+                    logger.debug(
+                        "Significance: skipping near-duplicate: %s",
+                        item["content"][:50],
+                    )
+                    continue
+
+                new_item = {
+                    **item,
+                    "priority": sig.adjusted_priority,
+                    "_significance": sig.to_metadata(),
+                }
+
+                # Tag contradictions for proactive surfacing
+                if sig.is_contradiction:
+                    existing_tags = list(item.get("tags", []))
+                    existing_tags.append("contradiction")
+                    new_item["tags"] = existing_tags
+
+                scored.append(new_item)
+            except Exception:
+                logger.debug("Significance scoring failed for item", exc_info=True)
+                scored.append(item)  # keep original on failure
+
+        return scored
 
     def _run_detection(self, text: str) -> list[dict[str, Any]]:
         """Run pattern detection with current config."""
