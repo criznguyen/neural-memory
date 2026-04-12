@@ -239,7 +239,7 @@ def validate_brain_package(data: dict[str, Any]) -> tuple[bool, list[str]]:
     if not isinstance(manifest, dict):
         errors.append("Missing or invalid 'manifest'")
     else:
-        for required in ("id", "name", "display_name", "description", "author", "content_hash"):
+        for required in ("id", "name", "display_name", "description", "author"):
             if not manifest.get(required):
                 errors.append(f"Manifest missing required field: {required}")
 
