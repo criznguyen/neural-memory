@@ -148,7 +148,7 @@ export default function StorePage() {
           <p className="text-xs text-muted-foreground">
             {t("store.showing", { count: brains.length })}
             {data?.cached && (
-              <span className="ml-1.5 text-muted-foreground/50">({t("store.cached")})</span>
+              <span className="ml-1.5 text-foreground/35">({t("store.cached")})</span>
             )}
           </p>
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

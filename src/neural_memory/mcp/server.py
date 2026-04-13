@@ -207,8 +207,10 @@ class MCPServer(
         tasks: dict[str, Any] = {}
 
         # INTERVAL tasks — existing handler methods wrapped as standalone coroutines
+        # _run_scheduled_consolidation(cfg) needs MaintenanceConfig; the scheduler
+        # calls fn() with no args, so bind cfg via closure.
         if hasattr(self, "_run_scheduled_consolidation"):
-            tasks["consolidation"] = self._run_scheduled_consolidation
+            tasks["consolidation"] = lambda: self._run_scheduled_consolidation(maint)
         if hasattr(self, "_check_latest_version"):
             tasks["version_check"] = self._check_latest_version
 
@@ -540,8 +542,10 @@ async def handle_message(server: MCPServer, message: dict[str, Any]) -> dict[str
         t0 = utcnow()
         success = True
         try:
-            result = await asyncio.wait_for(
-                server.call_tool(tool_name, tool_args),
+            result = await _call_tool_with_retry(
+                server,
+                tool_name,
+                tool_args,
                 timeout=_TOOL_CALL_TIMEOUT,
             )
 
@@ -621,6 +625,52 @@ async def handle_message(server: MCPServer, message: dict[str, Any]) -> dict[str
 
 _TOOL_CALL_TIMEOUT = 30.0  # seconds
 _MAX_MESSAGE_SIZE = 10 * 1024 * 1024  # 10 MB
+_DB_LOCKED_MAX_RETRIES = 3
+_DB_LOCKED_BASE_DELAY = 0.5  # seconds
+
+
+async def _call_tool_with_retry(
+    server: MCPServer,
+    tool_name: str,
+    tool_args: dict[str, Any],
+    *,
+    timeout: float,
+) -> dict[str, Any]:
+    """Call a tool with retry on SQLite 'database is locked' errors.
+
+    Multi-process access (MCP + ``nmem serve``) can cause transient lock
+    contention even with WAL mode and a 30-second busy_timeout.  This
+    wrapper retries up to 3 times with exponential back-off so callers
+    see a successful result rather than ``-32000``.
+    """
+    import sqlite3
+
+    last_exc: Exception | None = None
+    for attempt in range(_DB_LOCKED_MAX_RETRIES):
+        try:
+            return await asyncio.wait_for(
+                server.call_tool(tool_name, tool_args),
+                timeout=timeout,
+            )
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower():
+                raise
+            last_exc = exc
+            delay = _DB_LOCKED_BASE_DELAY * (2**attempt)
+            logger.warning(
+                "DB locked on '%s' (attempt %d/%d), retrying in %.1fs",
+                tool_name,
+                attempt + 1,
+                _DB_LOCKED_MAX_RETRIES,
+                delay,
+            )
+            await asyncio.sleep(delay)
+        except Exception:
+            raise
+
+    # Exhausted retries — re-raise the last locked error
+    assert last_exc is not None
+    raise last_exc
 
 
 def _lazy_init() -> None:

@@ -196,7 +196,7 @@ export function ExportDialog({ open, onClose, brainName }: ExportDialogProps) {
             {/* Security note */}
             <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/50 p-3">
               <Warning className="mt-0.5 size-4 shrink-0 text-amber-500" aria-hidden="true" />
-              <p className="text-xs text-muted-foreground">{t("store.exportSecurityNote")}</p>
+              <p className="text-xs text-foreground/70">{t("store.exportSecurityNote")}</p>
             </div>
 
             {/* Actions */}

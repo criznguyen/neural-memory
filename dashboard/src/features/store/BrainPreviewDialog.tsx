@@ -207,7 +207,7 @@ export function BrainPreviewDialog({
           )}
 
           {/* Metadata Row */}
-          <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+          <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-foreground/60">
             <span className="inline-flex items-center gap-1">
               <Certificate className="size-3" aria-hidden="true" />
               {preview.manifest.license}
@@ -285,7 +285,7 @@ function StatBox({
 }) {
   return (
     <div className="rounded-lg border border-border bg-muted/30 p-2.5 text-center">
-      <div className="flex items-center justify-center gap-1.5 text-muted-foreground">
+      <div className="flex items-center justify-center gap-1.5 text-foreground/70">
         {icon}
         <span className="text-[10px] uppercase tracking-wider">{label}</span>
       </div>
