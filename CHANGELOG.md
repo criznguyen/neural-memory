@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.45.2] — 2026-04-13
+
+### Fixed
+
+- **SQLite concurrency**: `busy_timeout` increased 5s→30s across all connection types (store, dialect, read pool) to handle multi-process contention
+- **MCP tool retry**: automatic retry with exponential backoff (3 attempts) on "database is locked" errors during tool calls
+- **Consolidation resilience**: gracefully skip fiber merges on FK violations instead of crashing the entire consolidation run
+- **Brain import**: support `.brain` package format with auto-detection, robust handling of missing fields (`brain_id`, `exported_at`, `version`)
+- **Consolidation scheduler**: lambda now correctly binds `MaintenanceConfig` instead of calling with no args
+- **Dashboard store UI**: improved text contrast — `muted-foreground` was too dim in dark mode
+
+### Removed
+
+- **Companion setup guide**: removed unrelated Vibe Companion docs from Neural Memory documentation
+
 ## [4.45.1] — 2026-04-12
 
 ### Fixed
