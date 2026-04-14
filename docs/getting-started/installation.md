@@ -53,13 +53,13 @@ Includes:
 - spaCy - Industrial NLP
 - en_core_web_sm model
 
-### Neo4j Storage
+### FalkorDB Storage
 
 ```bash
-pip install neural-memory[neo4j]
+pip install neural-memory[falkordb]
 ```
 
-For production deployments with Neo4j graph database.
+For production deployments with FalkorDB graph database.
 
 ### All Features
 

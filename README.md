@@ -19,16 +19,15 @@ Memories are stored as interconnected neurons and recalled through spreading act
 
 ```bash
 pip install neural-memory
-nmem init --full
 ```
 
-Restart your AI tool. Your agent now remembers.
+Restart your AI tool. Your agent now remembers — no `init` needed, the MCP server auto-initializes on first use.
 
 ---
 
 ## 3 Tools. That's It.
 
-56 MCP tools are available, but you only need three:
+59 MCP tools are available, but you only need three:
 
 | Tool | What it does |
 |------|-------------|
@@ -38,7 +37,7 @@ Restart your AI tool. Your agent now remembers.
 
 Everything else — sessions, context loading, habit tracking, maintenance — works transparently in the background.
 
-> [All 56 MCP tools →](https://nhadaututtheky.github.io/neural-memory/api/mcp-tools/)
+> [All 59 MCP tools →](https://nhadaututtheky.github.io/neural-memory/api/mcp-tools/)
 
 ---
 
@@ -167,7 +166,7 @@ asyncio.run(main())
 
 ## Neural Memory Pro
 
-Free Neural Memory is complete — 55 tools, unlimited memories, fully offline. **You never have to pay.**
+Free Neural Memory is complete — 59 tools, unlimited memories, fully offline. **You never have to pay.**
 
 But past 10K memories, things change. Keyword matching misses semantically related content. Consolidation slows to minutes. Storage grows unbounded. If your agent's brain is getting big, Pro makes it smart.
 
