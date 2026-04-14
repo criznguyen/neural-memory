@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Freshness weight enabled** (v4.46.1): default `0.15` (was `0.0`) — stale memories naturally deprioritized
 - **BALANCED preset activation threshold**: `0.2` → `0.3` to match new defaults
 
+### Docs
+
+- **Tool count corrected**: 55/56 → 59 across README, quickstart, npm-package
+- **Neo4j → FalkorDB**: updated outdated storage references in installation.md and FAQ.md
+- **Init contradiction resolved**: removed misleading `nmem init --full` from README (MCP auto-initializes)
+- **Troubleshooting decision tree**: added to FAQ.md for common issues
+- **"First 5 Minutes" onboarding**: added realistic MCP workflow to quickstart.md
+
 ### Tests
 
 - 6717 unit tests pass, 0 failures
