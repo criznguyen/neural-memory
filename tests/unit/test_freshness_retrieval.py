@@ -10,16 +10,16 @@ from neural_memory.utils.timeutils import utcnow
 
 
 class TestFreshnessWeightConfig:
-    def test_default_freshness_weight_zero(self) -> None:
+    def test_default_freshness_weight(self) -> None:
         cfg = BrainConfig()
-        assert cfg.freshness_weight == 0.0
+        assert cfg.freshness_weight == 0.15
 
     def test_with_updates_freshness_weight(self) -> None:
         cfg = BrainConfig()
         updated = cfg.with_updates(freshness_weight=0.5)
         assert updated.freshness_weight == 0.5
         # Original unchanged
-        assert cfg.freshness_weight == 0.0
+        assert cfg.freshness_weight == 0.15
 
 
 class TestFreshnessScoreMultipliers:

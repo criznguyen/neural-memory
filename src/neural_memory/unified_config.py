@@ -215,7 +215,7 @@ class BrainSettings:
     activation_threshold: float = 0.2
     max_spread_hops: int = 4
     max_context_tokens: int = 1500
-    freshness_weight: float = 0.0
+    freshness_weight: float = 0.15
     simhash_prefilter_threshold: int = 0  # 0=disabled, 1-64=Hamming distance cutoff
 
     def to_dict(self) -> dict[str, Any]:
@@ -237,7 +237,7 @@ class BrainSettings:
             activation_threshold=data.get("activation_threshold", 0.2),
             max_spread_hops=data.get("max_spread_hops", 4),
             max_context_tokens=data.get("max_context_tokens", 1500),
-            freshness_weight=data.get("freshness_weight", 0.0),
+            freshness_weight=data.get("freshness_weight", 0.15),
             simhash_prefilter_threshold=int(data.get("simhash_prefilter_threshold", 0)),
         )
 

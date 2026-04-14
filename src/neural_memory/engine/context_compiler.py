@@ -130,6 +130,22 @@ def _merge_group(
     return replace(primary, content=merged_content)
 
 
+_SUFFIX_STRIP = ("izing", "ation", "ting", "ing", "ment", "ness", "tion", "sion", "able", "ible", "ous", "ive", "ful", "less", "ally", "edly", "ly", "ed", "er", "es", "s")
+
+
+def _stem(word: str) -> str:
+    """Crude suffix strip for English — good enough for substring matching.
+
+    Strips common suffixes to produce a root that matches across inflections.
+    E.g. "optimizing" → "optim", "optimization" → "optim".
+    Only strips if remaining root is >= 4 chars (avoids over-stemming short words).
+    """
+    for suffix in _SUFFIX_STRIP:
+        if word.endswith(suffix) and len(word) - len(suffix) >= 4:
+            return word[: -len(suffix)]
+    return word
+
+
 def _rescore(
     chunks: list[CompiledChunk],
     query_terms: list[str],
@@ -139,7 +155,8 @@ def _rescore(
     """Apply query-relevance boost to activation scores.
 
     For each chunk, counts how many query_terms appear (case-insensitive) in
-    the content. Adds boost_per_term per match, capped at boost_cap.
+    the content. Uses both exact substring match and stem-based matching to
+    catch inflection variants (e.g. "optimizing" ↔ "optimization").
 
     Args:
         chunks: Chunks to rescore.
@@ -150,12 +167,25 @@ def _rescore(
     Returns:
         New list of CompiledChunk with final_score set.
     """
-    lower_terms = [t.lower() for t in query_terms]
+    # Normalize query terms: lowercase, strip punctuation, deduplicate
+    seen: set[str] = set()
+    lower_terms: list[str] = []
+    stems: list[str] = []
+    for t in query_terms:
+        cleaned = t.lower().strip(".,;:!?\"'()[]{}#@")
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            lower_terms.append(cleaned)
+            stems.append(_stem(cleaned))
+
     result: list[CompiledChunk] = []
 
     for chunk in chunks:
         lower_content = chunk.content.lower()
-        match_count = sum(1 for term in lower_terms if term and term in lower_content)
+        match_count = 0
+        for term, stem in zip(lower_terms, stems, strict=True):
+            if term in lower_content or (stem != term and stem in lower_content):
+                match_count += 1
         boost = min(match_count * boost_per_term, boost_cap)
         result.append(replace(chunk, final_score=chunk.activation_score + boost))
 

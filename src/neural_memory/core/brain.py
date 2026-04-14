@@ -62,7 +62,7 @@ class BrainConfig:
     embedding_model: str = "all-MiniLM-L6-v2"
     embedding_similarity_threshold: float = 0.7
     embedding_activation_boost: float = 0.15
-    freshness_weight: float = 0.0
+    freshness_weight: float = 0.15
     semantic_discovery_similarity_threshold: float = 0.7
     semantic_discovery_max_pairs: int = 100
     # Adaptive recall (Bayesian depth priors)

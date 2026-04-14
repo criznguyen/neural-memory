@@ -11,6 +11,7 @@ from neural_memory.engine.context_compiler import (
     _dedup_groups,
     _merge_group,
     _rescore,
+    _stem,
     compile_context,
 )
 
@@ -403,3 +404,42 @@ async def test_format_context_budgeted_compile_false_skips_dedup() -> None:
     assert fiber_bullet_count == 2, (
         f"Expected 2 fiber bullets with compile=False, got {fiber_bullet_count}. Context:\n{context}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Stem-based matching tests
+# ---------------------------------------------------------------------------
+
+
+class TestStem:
+    """Tests for the _stem helper."""
+
+    def test_optimizing_stem_matches_in_optimization(self) -> None:
+        # "optimizing" → "optim", which is a substring of "optimization"
+        stem = _stem("optimizing")
+        assert stem in "optimization"
+
+    def test_deploying_and_deployment_share_root(self) -> None:
+        assert _stem("deploying") == _stem("deployment")
+
+    def test_short_words_not_stripped(self) -> None:
+        assert _stem("the") == "the"
+        assert _stem("ing") == "ing"
+
+    def test_no_suffix_passthrough(self) -> None:
+        assert _stem("python") == "python"
+
+
+def test_query_boost_matches_inflections() -> None:
+    """Stem-based matching should boost content with inflection variants."""
+    c = _chunk("f1", "We need to optimize the database queries.", activation_score=0.5)
+    rescored = _rescore([c], ["optimizing"], boost_per_term=0.15, boost_cap=0.3)
+    # "optimizing" stems to "optim", which matches "optimize" in content
+    assert rescored[0].final_score > 0.5
+
+
+def test_query_boost_strips_punctuation() -> None:
+    """Query terms with trailing punctuation should still match."""
+    c = _chunk("f1", "authentication system is working", activation_score=0.5)
+    rescored = _rescore([c], ["authentication,"], boost_per_term=0.15, boost_cap=0.3)
+    assert rescored[0].final_score == pytest.approx(0.65)
