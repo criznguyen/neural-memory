@@ -130,7 +130,29 @@ def _merge_group(
     return replace(primary, content=merged_content)
 
 
-_SUFFIX_STRIP = ("izing", "ation", "ting", "ing", "ment", "ness", "tion", "sion", "able", "ible", "ous", "ive", "ful", "less", "ally", "edly", "ly", "ed", "er", "es", "s")
+_SUFFIX_STRIP = (
+    "izing",
+    "ation",
+    "ting",
+    "ing",
+    "ment",
+    "ness",
+    "tion",
+    "sion",
+    "able",
+    "ible",
+    "ous",
+    "ive",
+    "ful",
+    "less",
+    "ally",
+    "edly",
+    "ly",
+    "ed",
+    "er",
+    "es",
+    "s",
+)
 
 
 def _stem(word: str) -> str:
