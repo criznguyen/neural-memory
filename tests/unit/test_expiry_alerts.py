@@ -229,7 +229,9 @@ class TestRecallExpiryWarnings:
             mock_pipeline.query = AsyncMock(return_value=mock_result)
             mock_pipeline_cls.return_value = mock_pipeline
 
-            result = await server.call_tool("nmem_recall", {"query": "test", "warn_expiry_days": 7, "compact": False})
+            result = await server.call_tool(
+                "nmem_recall", {"query": "test", "warn_expiry_days": 7, "compact": False}
+            )
 
         assert "expiry_warnings" in result
         assert len(result["expiry_warnings"]) == 1
