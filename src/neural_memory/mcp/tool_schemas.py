@@ -2053,21 +2053,30 @@ _ALL_TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "nmem_store",
-        "description": "Brain Store — browse, preview, import, and export community knowledge brains. "
+        "description": "Brain Store — browse, preview, import, export, and delete knowledge brains. "
         "Share curated brains with the community or import others' expertise.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["browse", "preview", "import", "export", "publish"],
+                    "enum": ["browse", "preview", "import", "export", "publish", "delete"],
                     "description": "browse=search community brain registry, preview=view brain details before import, "
                     "import=download and import a brain, export=export current brain as .brain file, "
-                    "publish=export and publish brain to community store (requires API key)",
+                    "publish=export and publish brain to community store (requires API key), "
+                    "delete=permanently delete a local brain and all its data (requires brain_id)",
                 },
                 "brain_name": {
                     "type": "string",
                     "description": "Brain name in registry (required for preview/import)",
+                },
+                "brain_id": {
+                    "type": "string",
+                    "description": "Local brain ID to delete (required for delete action)",
+                },
+                "confirm": {
+                    "type": "boolean",
+                    "description": "Must be true to actually delete. Without it, returns a preview of what would be deleted.",
                 },
                 "search": {
                     "type": "string",
