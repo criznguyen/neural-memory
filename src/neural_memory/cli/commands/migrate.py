@@ -14,20 +14,12 @@ logger = logging.getLogger(__name__)
 def migrate(
     target: Annotated[
         str,
-        typer.Argument(help="Target backend: 'falkordb', 'postgres', 'infinitydb', or 'sqlite'"),
+        typer.Argument(help="Target backend: 'postgres', 'infinitydb', or 'sqlite'"),
     ],
     brain: Annotated[
         str | None,
         typer.Option("--brain", "-b", help="Specific brain to migrate (default: current)"),
     ] = None,
-    falkordb_host: Annotated[
-        str,
-        typer.Option("--falkordb-host", help="FalkorDB host"),
-    ] = "localhost",
-    falkordb_port: Annotated[
-        int,
-        typer.Option("--falkordb-port", help="FalkorDB port"),
-    ] = 6379,
     pg_host: Annotated[
         str,
         typer.Option("--pg-host", help="PostgreSQL host"),
@@ -54,25 +46,16 @@ def migrate(
     """Migrate brain data between storage backends.
 
     Examples:
-        nmem migrate falkordb --brain default
         nmem migrate postgres --brain default --pg-host localhost --pg-database neuralmem
         nmem migrate infinitydb --brain my-brain.v2
     """
-    supported = ("falkordb", "postgres", "infinitydb", "sqlite")
+    supported = ("postgres", "infinitydb", "sqlite")
     if target not in supported:
         typer.secho(f"Unknown target backend: {target}", fg=typer.colors.RED)
         typer.echo(f"Supported targets: {', '.join(supported)}")
         raise typer.Exit(1)
 
-    if target == "falkordb":
-        asyncio.run(
-            _migrate_to_falkordb(
-                brain_name=brain,
-                host=falkordb_host,
-                port=falkordb_port,
-            )
-        )
-    elif target == "postgres":
+    if target == "postgres":
         asyncio.run(
             _migrate_to_postgres(
                 brain_name=brain,
@@ -88,35 +71,6 @@ def migrate(
     else:
         typer.secho("SQLite -> SQLite migration not needed.", fg=typer.colors.YELLOW)
         raise typer.Exit(0)
-
-
-async def _migrate_to_falkordb(
-    brain_name: str | None,
-    host: str,
-    port: int,
-) -> None:
-    """Run the SQLite -> FalkorDB migration."""
-    from neural_memory.storage.falkordb.falkordb_migration import (
-        migrate_sqlite_to_falkordb,
-    )
-    from neural_memory.unified_config import get_config
-
-    config = get_config()
-    name = brain_name or config.current_brain
-    db_path = str(config.get_brain_db_path(name))
-
-    typer.secho(f"Migrating brain '{name}' from SQLite -> FalkorDB", bold=True)
-    typer.echo(f"  Source: {db_path}")
-    typer.echo(f"  Target: {host}:{port}")
-
-    result = await migrate_sqlite_to_falkordb(
-        sqlite_db_path=db_path,
-        falkordb_host=host,
-        falkordb_port=port,
-        brain_name=name,
-    )
-
-    _print_result(result)
 
 
 async def _migrate_to_postgres(

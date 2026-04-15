@@ -53,14 +53,6 @@ Includes:
 - spaCy - Industrial NLP
 - en_core_web_sm model
 
-### FalkorDB Storage
-
-```bash
-pip install neural-memory[falkordb]
-```
-
-For production deployments with FalkorDB graph database.
-
 ### All Features
 
 ```bash

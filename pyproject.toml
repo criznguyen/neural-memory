@@ -70,9 +70,6 @@ server = [
     "python-multipart>=0.0.22",
     "httpx>=0.24",
 ]
-falkordb = [
-    "falkordb>=1.0.0,<2.0",
-]
 postgres = [
     "asyncpg>=0.29.0",
     "pgvector>=0.2.0",
@@ -135,7 +132,7 @@ integration = [
     "neural-memory[chromadb,mem0]",
 ]
 all = [
-    "neural-memory[server,falkordb,nlp,integration]",
+    "neural-memory[server,nlp,integration]",
 ]
 dev = [
     "pytest>=7.0",
@@ -242,7 +239,6 @@ ignore = [
 "src/neural_memory/storage/sqlite_*.py" = ["S608"] # SQL with hardcoded column names
 "src/neural_memory/storage/sql/**" = ["S608"]      # parameterized SQL via dialect placeholders
 "src/neural_memory/cli/**" = ["T201", "S603", "S607", "S310", "E402", "S104"]  # CLI: print, subprocess, url open, deferred imports, bind check
-"src/neural_memory/storage/falkordb/**" = ["DTZ901"]  # naive UTC datetimes by design
 "src/neural_memory/safety/sensitive.py" = ["S105"] # pattern names, not actual secrets
 "src/neural_memory/engine/db_introspector.py" = ["S608"]  # identifier-validated SQL
 "src/neural_memory/pro/**" = ["TC002"]  # numpy/hnswlib runtime imports used in Pro code

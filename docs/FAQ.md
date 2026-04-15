@@ -8,7 +8,6 @@
 - **CLI tools**: `nmem`, `neural-memory`, `nmem-mcp`
 - **Optional extras**:
   - `[server]` — FastAPI + Uvicorn
-  - `[falkordb]` — FalkorDB graph database
   - `[nlp-en]` — English NLP (spaCy)
   - `[nlp-vi]` — Vietnamese NLP (underthesea, pyvi)
   - `[all]` — All of the above

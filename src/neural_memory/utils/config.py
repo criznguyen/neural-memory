@@ -20,12 +20,8 @@ class Config:
     debug: bool = False
 
     # Storage settings
-    storage_backend: str = "memory"  # memory, sqlite, falkordb
+    storage_backend: str = "memory"  # memory, sqlite, postgres, infinitydb
     sqlite_path: str | None = None
-    falkordb_host: str = "localhost"
-    falkordb_port: int = 6379
-    falkordb_username: str | None = None
-    falkordb_password: str | None = None
 
     # Brain defaults
     default_decay_rate: float = 0.1
@@ -89,10 +85,6 @@ class Config:
             debug=get_bool("NEURAL_MEMORY_DEBUG", False),
             storage_backend=os.getenv("NEURAL_MEMORY_STORAGE", "memory"),
             sqlite_path=os.getenv("NEURAL_MEMORY_SQLITE_PATH"),
-            falkordb_host=os.getenv("NEURAL_MEMORY_FALKORDB_HOST", "localhost"),
-            falkordb_port=get_int("NEURAL_MEMORY_FALKORDB_PORT", 6379),
-            falkordb_username=os.getenv("NEURAL_MEMORY_FALKORDB_USERNAME"),
-            falkordb_password=os.getenv("NEURAL_MEMORY_FALKORDB_PASSWORD"),
             default_decay_rate=get_float("NEURAL_MEMORY_DECAY_RATE", 0.1),
             default_activation_threshold=get_float("NEURAL_MEMORY_ACTIVATION_THRESHOLD", 0.3),
             default_max_spread_hops=get_int("NEURAL_MEMORY_MAX_SPREAD_HOPS", 4),

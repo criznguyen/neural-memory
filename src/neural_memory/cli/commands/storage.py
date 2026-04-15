@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 storage_app = typer.Typer(
     name="storage",
-    help="Manage storage backend (SQLite, InfinityDB, FalkorDB, PostgreSQL)",
+    help="Manage storage backend (SQLite, InfinityDB, PostgreSQL)",
     no_args_is_help=True,
 )
 
