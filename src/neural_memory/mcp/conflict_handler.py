@@ -93,6 +93,9 @@ class ConflictHandler:
                         "confidence": s.weight,
                         "detected_at": s.metadata.get("detected_at", ""),
                         "is_superseded": is_superseded,
+                        "temporal_classification": s.metadata.get(
+                            "temporal_classification", "true_contradiction"
+                        ),
                         "auto_resolved": s.metadata.get("_auto_resolved", False),
                         "auto_resolve_reason": s.metadata.get("_auto_resolve_reason", ""),
                     }
@@ -332,6 +335,7 @@ class ConflictHandler:
                     "conflict_type": c.type.value,
                     "confidence": c.confidence,
                     "subject": c.subject,
+                    "temporal_classification": c.temporal_classification.value,
                 }
                 for c in conflicts
             ]

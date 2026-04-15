@@ -9,16 +9,22 @@ from neural_memory.core.synapse import SynapseType
 from neural_memory.engine.conflict_detection import (
     Conflict,
     ConflictType,
+    TemporalClassification,
     _content_agrees,
     _extract_predicates,
     _extract_search_terms,
+    _extract_tech_terms,
+    _has_negation,
     _is_decision_content,
+    _normalize_tech_term,
     _predicates_conflict,
+    _strip_negation,
     _subjects_match,
     _tag_overlap,
     detect_conflicts,
     resolve_conflicts,
 )
+from neural_memory.engine.conflict_detection import _classify_temporal
 
 # ========== Helper extraction tests ==========
 
@@ -464,3 +470,162 @@ class TestResolveConflicts:
             storage=storage,
         )
         assert len(resolutions) == 0
+
+
+# ========== Phase 2: Negation detection ==========
+
+
+class TestNegationDetection:
+    """Tests for negation-based conflict detection."""
+
+    def test_has_negation_basic(self) -> None:
+        """Should detect common negation markers."""
+        assert _has_negation("We do NOT use Redis")
+        assert _has_negation("We never deploy on Fridays")
+        assert _has_negation("We no longer use FalkorDB")
+        assert _has_negation("Stopped using Webpack")
+        assert _has_negation("We removed the old auth module")
+        assert _has_negation("Feature flag disabled")
+        assert _has_negation("We dropped FalkorDB support")
+        assert _has_negation("That API is deprecated")
+        assert _has_negation("We don't use Redis anymore")
+
+    def test_has_negation_negative(self) -> None:
+        """Should not detect negation in affirmative content."""
+        assert not _has_negation("We use Redis for caching")
+        assert not _has_negation("The team chose PostgreSQL")
+        assert not _has_negation("Database is running well")
+
+    def test_strip_negation(self) -> None:
+        """Should remove negation markers from content."""
+        stripped = _strip_negation("We do NOT use Redis")
+        assert "NOT" not in stripped.upper() or "not" not in stripped.lower()
+        assert "Redis" in stripped or "redis" in stripped.lower()
+
+    async def test_detects_negation_conflict(self) -> None:
+        """Should detect conflict between affirm and negate on same topic."""
+        storage = _MockStorage()
+        existing = Neuron.create(
+            type=NeuronType.CONCEPT,
+            content="We use Redis for caching",
+            metadata={"tags": ["redis", "caching", "infrastructure"]},
+            neuron_id="existing-redis",
+        )
+        storage.add_neuron_for_test(existing)
+
+        conflicts = await detect_conflicts(
+            content="We do NOT use Redis for caching",
+            tags={"redis", "caching", "infrastructure"},
+            storage=storage,
+        )
+        negation_conflicts = [c for c in conflicts if c.type == ConflictType.NEGATION_CONFLICT]
+        assert len(negation_conflicts) >= 1
+
+    async def test_no_negation_conflict_when_both_affirm(self) -> None:
+        """Should not flag negation conflict if both are affirmative."""
+        storage = _MockStorage()
+        existing = Neuron.create(
+            type=NeuronType.CONCEPT,
+            content="We use Redis for caching",
+            metadata={"tags": ["redis", "caching"]},
+            neuron_id="existing-redis",
+        )
+        storage.add_neuron_for_test(existing)
+
+        conflicts = await detect_conflicts(
+            content="We use Memcached for caching",
+            tags={"memcached", "caching"},
+            storage=storage,
+        )
+        negation_conflicts = [c for c in conflicts if c.type == ConflictType.NEGATION_CONFLICT]
+        assert len(negation_conflicts) == 0
+
+
+# ========== Phase 2: Temporal classification ==========
+
+
+class TestTemporalClassification:
+    """Tests for temporal relationship between conflicts."""
+
+    def test_same_session_within_1h(self) -> None:
+        """Gap < 1 hour should classify as SAME_SESSION_CORRECTION."""
+        old = datetime(2026, 4, 10, 10, 0, 0)
+        new = datetime(2026, 4, 10, 10, 30, 0)
+        assert _classify_temporal(old, new) == TemporalClassification.SAME_SESSION_CORRECTION
+
+    def test_superseded_over_24h(self) -> None:
+        """Gap > 24 hours should classify as SUPERSEDED."""
+        old = datetime(2026, 3, 1, 10, 0, 0)
+        new = datetime(2026, 4, 10, 10, 0, 0)
+        assert _classify_temporal(old, new) == TemporalClassification.SUPERSEDED
+
+    def test_true_contradiction_medium_gap(self) -> None:
+        """Gap between 1-24h should classify as TRUE_CONTRADICTION."""
+        old = datetime(2026, 4, 10, 10, 0, 0)
+        new = datetime(2026, 4, 10, 18, 0, 0)  # 8 hours later
+        assert _classify_temporal(old, new) == TemporalClassification.TRUE_CONTRADICTION
+
+    def test_none_timestamps_default_to_true_contradiction(self) -> None:
+        """Missing timestamps should default to TRUE_CONTRADICTION."""
+        assert _classify_temporal(None, None) == TemporalClassification.TRUE_CONTRADICTION
+        assert (
+            _classify_temporal(datetime(2026, 1, 1), None)
+            == TemporalClassification.TRUE_CONTRADICTION
+        )
+
+    async def test_temporal_classification_in_detected_conflict(self) -> None:
+        """Detected conflicts should include temporal classification."""
+        from dataclasses import replace as dc_replace
+
+        storage = _MockStorage()
+        old_time = datetime(2026, 1, 1, 10, 0, 0)
+        existing = Neuron.create(
+            type=NeuronType.CONCEPT,
+            content="We use PostgreSQL for the backend database",
+            metadata={"tags": ["database", "backend"]},
+            neuron_id="existing-pg",
+        )
+        existing = dc_replace(existing, created_at=old_time)
+        storage.add_neuron_for_test(existing)
+
+        new_time = datetime(2026, 4, 10, 10, 0, 0)
+        conflicts = await detect_conflicts(
+            content="We use MySQL for the backend database",
+            tags={"database", "backend"},
+            storage=storage,
+            new_created_at=new_time,
+        )
+        assert len(conflicts) >= 1
+        # 100 days gap -> SUPERSEDED
+        assert conflicts[0].temporal_classification == TemporalClassification.SUPERSEDED
+
+
+# ========== Phase 2: Entity matching ==========
+
+
+class TestEntityMatching:
+    """Tests for improved entity/tech term matching."""
+
+    def test_extract_tech_terms_camelcase(self) -> None:
+        """Should extract CamelCase tech names."""
+        terms = _extract_tech_terms("We use PostgreSQL and MongoDB")
+        assert "postgresql" in terms
+        assert "mongodb" in terms
+
+    def test_extract_tech_terms_after_verb(self) -> None:
+        """Should extract terms after use/chose/selected."""
+        terms = _extract_tech_terms("We chose Redis for caching")
+        assert "redis" in terms
+
+    def test_normalize_aliases(self) -> None:
+        """Should normalize common aliases."""
+        assert _normalize_tech_term("Postgres") == "postgresql"
+        assert _normalize_tech_term("pg") == "postgresql"
+        assert _normalize_tech_term("mongo") == "mongodb"
+        assert _normalize_tech_term("k8s") == "kubernetes"
+
+    def test_subjects_match_with_aliases(self) -> None:
+        """Should match 'postgres' with 'postgresql'."""
+        assert _subjects_match("postgres", "postgresql")
+        assert _subjects_match("pg", "postgresql")
+        assert _subjects_match("mongo", "mongodb")

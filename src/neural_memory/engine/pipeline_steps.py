@@ -1414,6 +1414,7 @@ class ConflictDetectionStep:
             tags=ctx.merged_tags,
             storage=storage,
             memory_type=memory_type_str,
+            new_created_at=ctx.anchor_neuron.created_at,
         )
         ctx.conflicts_detected = len(conflicts)
 

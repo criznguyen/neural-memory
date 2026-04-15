@@ -23,6 +23,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from dataclasses import replace as dc_replace
+from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -103,6 +104,15 @@ class ConflictType(StrEnum):
 
     FACTUAL_CONTRADICTION = "factual_contradiction"
     DECISION_REVERSAL = "decision_reversal"
+    NEGATION_CONFLICT = "negation_conflict"
+
+
+class TemporalClassification(StrEnum):
+    """Temporal relationship between conflicting memories."""
+
+    TRUE_CONTRADICTION = "true_contradiction"
+    SUPERSEDED = "superseded"
+    SAME_SESSION_CORRECTION = "same_session_correction"
 
 
 @dataclass(frozen=True)
@@ -128,6 +138,7 @@ class Conflict:
     subject: str = ""
     existing_predicate: str = ""
     new_predicate: str = ""
+    temporal_classification: TemporalClassification = TemporalClassification.TRUE_CONTRADICTION
 
 
 @dataclass(frozen=True)
@@ -229,6 +240,171 @@ def _extract_predicates(content: str) -> list[_PredicateExtraction]:
     return results
 
 
+# --- Negation detection ---
+
+_NEGATION_MARKERS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\b(?:do\s+)?not\b", re.IGNORECASE),
+    re.compile(r"\bnever\b", re.IGNORECASE),
+    re.compile(r"\bno\s+longer\b", re.IGNORECASE),
+    re.compile(r"\bstopped\s+(?:using|running|doing)\b", re.IGNORECASE),
+    re.compile(r"\bremoved\b", re.IGNORECASE),
+    re.compile(r"\bdisabled\b", re.IGNORECASE),
+    re.compile(r"\bdropped\b", re.IGNORECASE),
+    re.compile(r"\bdeprecated\b", re.IGNORECASE),
+    re.compile(r"\bdon'?t\b", re.IGNORECASE),
+    re.compile(r"\bwon'?t\b", re.IGNORECASE),
+    re.compile(r"\bno\b", re.IGNORECASE),
+)
+
+
+def _has_negation(content: str) -> bool:
+    """Check if content contains negation markers."""
+    return any(pat.search(content) for pat in _NEGATION_MARKERS)
+
+
+def _strip_negation(content: str) -> str:
+    """Remove negation markers from content for comparison."""
+    result = content
+    for pat in _NEGATION_MARKERS:
+        result = pat.sub("", result)
+    # Collapse whitespace
+    return re.sub(r"\s+", " ", result).strip()
+
+
+def _detect_negation_conflicts(
+    content: str,
+    candidate: Neuron,
+    tags: set[str],
+    tag_overlap_threshold: float,
+) -> Conflict | None:
+    """Detect negation-based conflicts between new and existing content.
+
+    Matches: "we use Redis" vs "we do NOT use Redis"
+    One content has negation + other doesn't + shared key terms = conflict.
+    """
+    new_negated = _has_negation(content)
+    existing_negated = _has_negation(candidate.content)
+
+    # Both negated or neither negated - not a negation conflict
+    if new_negated == existing_negated:
+        return None
+
+    # Strip negation and compare core content
+    new_core = _strip_negation(content).lower()
+    existing_core = _strip_negation(candidate.content).lower()
+
+    # Check word overlap on stripped content
+    new_words = set(new_core.split()) - _STOP_WORDS
+    existing_words = set(existing_core.split()) - _STOP_WORDS
+
+    if not new_words or not existing_words:
+        return None
+
+    overlap = len(new_words & existing_words) / min(len(new_words), len(existing_words))
+    if overlap < 0.4:
+        return None
+
+    # Verify tag overlap
+    candidate_tags = _extract_implicit_tags(candidate)
+    tag_sim = _tag_overlap(tags, candidate_tags) if tags and candidate_tags else 0.5
+
+    if tag_sim < tag_overlap_threshold and tags and candidate_tags:
+        return None
+
+    return Conflict(
+        type=ConflictType.NEGATION_CONFLICT,
+        existing_neuron_id=candidate.id,
+        existing_content=candidate.content,
+        new_content=content,
+        confidence=min(1.0, 0.6 + overlap * 0.3),
+        subject="_negation",
+        existing_predicate=existing_core[:100],
+        new_predicate=new_core[:100],
+    )
+
+
+# --- Temporal supersession ---
+
+
+def _classify_temporal(
+    existing_created_at: datetime | None,
+    new_created_at: datetime | None,
+) -> TemporalClassification:
+    """Classify temporal relationship between two conflicting memories.
+
+    - gap < 1 hour -> SAME_SESSION_CORRECTION
+    - gap > 24 hours -> SUPERSEDED (newer replaces older)
+    - otherwise -> TRUE_CONTRADICTION
+    """
+    if existing_created_at is None or new_created_at is None:
+        return TemporalClassification.TRUE_CONTRADICTION
+
+    gap = abs((new_created_at - existing_created_at).total_seconds())
+
+    if gap < 3600:  # < 1 hour
+        return TemporalClassification.SAME_SESSION_CORRECTION
+    if gap > 86400:  # > 24 hours
+        return TemporalClassification.SUPERSEDED
+
+    return TemporalClassification.TRUE_CONTRADICTION
+
+
+# --- Entity matching ---
+
+_TECH_TERM_RE = re.compile(
+    r"""
+    (?:[A-Z][a-z]+(?:[A-Z][a-zA-Z]*)+)  # CamelCase: PostgreSQL, MongoDB, FastAPI
+    | (?:[a-z]+(?:-[a-z]+)+)             # kebab-case: vue-router, next-auth
+    | (?:[A-Z]{2,}[a-z]*)               # Acronym+: AWS, GCP, SQLite
+    | (?:\"[^\"]+\")                     # Quoted: "some tech"
+    | (?:'[^']+')                        # Single quoted
+    """,
+    re.VERBOSE,
+)
+
+# Common tech name aliases for fuzzy matching
+_TECH_ALIASES: dict[str, str] = {
+    "postgres": "postgresql",
+    "pg": "postgresql",
+    "mongo": "mongodb",
+    "js": "javascript",
+    "ts": "typescript",
+    "py": "python",
+    "k8s": "kubernetes",
+    "tf": "terraform",
+    "gcp": "google cloud",
+    "aws": "amazon web services",
+}
+
+
+def _extract_tech_terms(content: str) -> set[str]:
+    """Extract technology/entity terms from content."""
+    terms: set[str] = set()
+    for match in _TECH_TERM_RE.finditer(content):
+        term = match.group().strip("\"'").lower()
+        if len(term) >= 2:
+            terms.add(term)
+
+    # Also extract words after "use/chose/selected/switched to"
+    after_verb = re.findall(
+        r"(?:use|chose|selected|switched\s+to|migrated\s+to|adopted)\s+(\S+)",
+        content,
+        re.IGNORECASE,
+    )
+    for word in after_verb:
+        cleaned = word.strip(".,;:\"'").lower()
+        if len(cleaned) >= 2 and cleaned not in _STOP_WORDS:
+            terms.add(cleaned)
+
+    return terms
+
+
+def _normalize_tech_term(term: str) -> str:
+    """Normalize a tech term for comparison."""
+    lower = term.lower().strip()
+    return _TECH_ALIASES.get(lower, lower)
+
+
 def _tag_overlap(tags_a: set[str], tags_b: set[str]) -> float:
     """Compute Jaccard similarity between two tag sets."""
     if not tags_a or not tags_b:
@@ -245,12 +421,19 @@ async def detect_conflicts(
     memory_type: str = "",
     tag_overlap_threshold: float = 0.15,
     max_candidates: int = 20,
+    new_created_at: datetime | None = None,
 ) -> list[Conflict]:
     """Detect conflicts between new content and existing memories.
 
     Checks for:
     1. Factual contradictions via predicate extraction
-    2. Decision reversals via tag overlap + different conclusions
+    2. Negation conflicts (one affirms, the other negates same thing)
+    3. Decision reversals via tag overlap + different conclusions
+
+    Each conflict includes a temporal_classification:
+    - SAME_SESSION_CORRECTION: gap < 1h (likely self-correction)
+    - SUPERSEDED: gap > 24h (newer replaces older)
+    - TRUE_CONTRADICTION: otherwise (genuine conflict)
 
     Args:
         content: The new memory content to check
@@ -259,6 +442,7 @@ async def detect_conflicts(
         memory_type: Type of the new memory (e.g., "decision")
         tag_overlap_threshold: Minimum Jaccard similarity for tag match
         max_candidates: Maximum existing neurons to check
+        new_created_at: Creation time of the new memory (for temporal classification)
 
     Returns:
         List of detected conflicts (may be empty)
@@ -287,13 +471,16 @@ async def detect_conflicts(
 
     # Check each candidate for conflicts
     for candidate in candidates[:max_candidates]:
-        # Skip TIME neurons — they can't contradict
+        # Skip TIME neurons - they can't contradict
         if candidate.type == NeuronType.TIME:
             continue
 
-        # Already disputed or resolved — don't re-flag
+        # Already disputed or resolved - don't re-flag
         if candidate.metadata.get("_disputed") or candidate.metadata.get("_conflict_resolved"):
             continue
+
+        # Pre-compute temporal classification for this candidate
+        temporal = _classify_temporal(candidate.created_at, new_created_at)
 
         existing_predicates = _extract_predicates(candidate.content)
 
@@ -319,8 +506,17 @@ async def detect_conflicts(
                                     subject=new_pred.subject,
                                     existing_predicate=existing_pred.predicate,
                                     new_predicate=new_pred.predicate,
+                                    temporal_classification=temporal,
                                 )
                             )
+
+        # Check for negation conflicts (one affirms, other negates)
+        negation = _detect_negation_conflicts(content, candidate, tags, tag_overlap_threshold)
+        if negation is not None:
+            # Don't duplicate if already caught as factual contradiction
+            already_found = any(c.existing_neuron_id == candidate.id for c in conflicts)
+            if not already_found:
+                conflicts.append(dc_replace(negation, temporal_classification=temporal))
 
         # Check for decision reversals
         if memory_type == "decision" or _is_decision_content(content):
@@ -331,15 +527,18 @@ async def detect_conflicts(
                 if overlap >= tag_overlap_threshold:
                     # Different content + overlapping tags = potential reversal
                     if not _content_agrees(content, candidate.content):
-                        conflicts.append(
-                            Conflict(
-                                type=ConflictType.DECISION_REVERSAL,
-                                existing_neuron_id=candidate.id,
-                                existing_content=candidate.content,
-                                new_content=content,
-                                confidence=min(1.0, 0.4 + overlap),
+                        already_found = any(c.existing_neuron_id == candidate.id for c in conflicts)
+                        if not already_found:
+                            conflicts.append(
+                                Conflict(
+                                    type=ConflictType.DECISION_REVERSAL,
+                                    existing_neuron_id=candidate.id,
+                                    existing_content=candidate.content,
+                                    new_content=content,
+                                    confidence=min(1.0, 0.4 + overlap),
+                                    temporal_classification=temporal,
+                                )
                             )
-                        )
 
     return conflicts
 
@@ -449,6 +648,7 @@ async def resolve_conflicts(
             metadata={
                 "conflict_type": conflict.type.value,
                 "subject": conflict.subject,
+                "temporal_classification": conflict.temporal_classification.value,
                 "detected_at": utcnow().isoformat(),
             },
         )
@@ -537,8 +737,13 @@ def _subjects_match(subject_a: str, subject_b: str) -> bool:
     # One implicit + one explicit: match if explicit is generic
     if "_implicit_agent" in (subject_a, subject_b):
         return True
+    # Normalize tech aliases before comparison
+    norm_a = _normalize_tech_term(subject_a)
+    norm_b = _normalize_tech_term(subject_b)
+    if norm_a == norm_b:
+        return True
     # Fuzzy: check if one contains the other
-    return subject_a in subject_b or subject_b in subject_a
+    return norm_a in norm_b or norm_b in norm_a
 
 
 def _predicates_conflict(pred_a: str, pred_b: str) -> bool:
