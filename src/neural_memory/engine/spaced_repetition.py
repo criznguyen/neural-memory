@@ -71,11 +71,17 @@ class SpacedRepetitionEngine:
         self,
         fiber_id: str,
         success: bool,
+        quality: int = 4,
     ) -> dict[str, Any]:
         """Process a review result for a fiber.
 
         On success: advance box, reinforce neuron states via Hebbian system.
-        On failure: reset to box 1, let natural decay handle it.
+        On failure: graduated drop (1-2 boxes), let natural decay handle it.
+
+        Args:
+            fiber_id: Fiber to review
+            success: True if recall was successful
+            quality: SM-2 quality rating 0-5 (default 4 for success)
 
         Returns dict with new schedule state.
         """
@@ -83,8 +89,8 @@ class SpacedRepetitionEngine:
         if schedule is None:
             return {"error": f"No review schedule for fiber {fiber_id}"}
 
-        # Advance the schedule
-        new_schedule = schedule.advance(success)
+        # Advance the schedule with SM-2 quality
+        new_schedule = schedule.advance(success, quality=quality)
         await self._storage.add_review_schedule(new_schedule)
 
         # Reinforce neurons on successful recall
@@ -107,6 +113,7 @@ class SpacedRepetitionEngine:
             "previous_box": schedule.box,
             "new_box": new_schedule.box,
             "streak": new_schedule.streak,
+            "ease_factor": new_schedule.ease_factor,
             "next_review": new_schedule.next_review.isoformat()
             if new_schedule.next_review
             else None,
