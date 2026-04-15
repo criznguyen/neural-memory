@@ -27,7 +27,7 @@ Restart your AI tool. Your agent now remembers — no `init` needed, the MCP ser
 
 ## 3 Tools. That's It.
 
-59 MCP tools are available, but you only need three:
+60 MCP tools are available, but you only need three:
 
 | Tool | What it does |
 |------|-------------|
@@ -37,7 +37,7 @@ Restart your AI tool. Your agent now remembers — no `init` needed, the MCP ser
 
 Everything else — sessions, context loading, habit tracking, maintenance — works transparently in the background.
 
-> [All 59 MCP tools →](https://nhadaututtheky.github.io/neural-memory/api/mcp-tools/)
+> [All 60 MCP tools →](https://nhadaututtheky.github.io/neural-memory/api/mcp-tools/)
 
 ---
 
@@ -166,7 +166,7 @@ asyncio.run(main())
 
 ## Neural Memory Pro
 
-Free Neural Memory is complete — 59 tools, unlimited memories, fully offline. **You never have to pay.**
+Free Neural Memory is complete — 60 tools, unlimited memories, fully offline. **You never have to pay.**
 
 But past 10K memories, things change. Keyword matching misses semantically related content. Consolidation slows to minutes. Storage grows unbounded. If your agent's brain is getting big, Pro makes it smart.
 
@@ -315,7 +315,7 @@ Zero LLM calls, zero API cost. [Full benchmarks →](docs/benchmarks.md)
 | [Quickstart Guide](https://nhadaututtheky.github.io/neural-memory/guides/quickstart-guide/) | Interactive guide with animated demos |
 | [Pro Quickstart](https://nhadaututtheky.github.io/neural-memory/guides/pro-quickstart/) | Get started with Pro features |
 | [CLI Reference](https://nhadaututtheky.github.io/neural-memory/getting-started/cli-reference/) | All 66 CLI commands |
-| [MCP Tools Reference](https://nhadaututtheky.github.io/neural-memory/api/mcp-tools/) | All 56 MCP tools with parameters |
+| [MCP Tools Reference](https://nhadaututtheky.github.io/neural-memory/api/mcp-tools/) | All 60 MCP tools with parameters |
 | [Cloud Sync](https://nhadaututtheky.github.io/neural-memory/guides/cloud-sync/) | Multi-device sync setup |
 | [Brain Health Guide](https://nhadaututtheky.github.io/neural-memory/guides/brain-health/) | Understanding and improving brain health |
 | [Embedding Setup](https://nhadaututtheky.github.io/neural-memory/guides/embedding-setup/) | Configure embedding providers |
@@ -326,7 +326,7 @@ Zero LLM calls, zero API cost. [Full benchmarks →](docs/benchmarks.md)
 ```bash
 git clone https://github.com/nhadaututtheky/neural-memory
 cd neural-memory && pip install -e ".[dev]"
-pytest tests/ -v          # 6100+ tests
+pytest tests/ -v          # 7000+ tests
 ruff check src/ tests/    # Lint
 ```
 

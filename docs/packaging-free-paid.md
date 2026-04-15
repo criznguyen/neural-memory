@@ -39,7 +39,7 @@ Core memory CRUD, đủ dùng cho cá nhân.
 - SQLite only
 - Local embeddings only (no OpenAI/Gemini)
 
-### Pro — 30 tools (Free + 20)
+### Pro — 60 tools (Free + 20)
 
 Intelligence layer cho power users.
 
@@ -73,7 +73,7 @@ Intelligence layer cho power users.
 - Cloud embeddings (OpenAI, Gemini)
 - All consolidation modes
 
-### Enterprise — 50 tools (All)
+### Enterprise — 60 tools (All)
 
 Team, sync, integrations, compliance.
 
@@ -163,7 +163,7 @@ class Plan(str, Enum):
 TOOL_PLANS: dict[str, Plan] = {
     "nmem_remember": Plan.FREE,
     "nmem_recall": Plan.FREE,
-    # ... all 50 tools mapped
+    # ... all 60 tools mapped
     "nmem_sync": Plan.ENTERPRISE,
 }
 
@@ -274,8 +274,8 @@ Khi user gọi tool bị gate, trả về message hữu ích:
 🔒 nmem_sync requires Enterprise plan.
 
 You're on the Free plan. Upgrade to unlock:
-  Pro ($9/mo)       — 30 tools, cognitive layer, narratives
-  Enterprise ($29/mo) — 50 tools, sync, team, integrations
+  Pro ($9/mo)       — 60 tools, cognitive layer, narratives
+  Enterprise ($29/mo) — 60 tools, sync, team, integrations
 
 → https://neuralmemory.dev/pricing
 → Or run: nmem license activate <key>

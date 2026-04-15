@@ -31,6 +31,7 @@ from neural_memory.engine.hooks import HookRegistry
 from neural_memory.engine.scheduler import SchedulerCore
 from neural_memory.mcp.alert_handler import AlertHandler
 from neural_memory.mcp.auto_handler import AutoHandler
+from neural_memory.mcp.cache_handler import CacheHandler
 from neural_memory.mcp.cognitive_handler import CognitiveHandler
 from neural_memory.mcp.conflict_handler import ConflictHandler
 from neural_memory.mcp.connection_handler import ConnectionHandler
@@ -112,6 +113,7 @@ class MCPServer(
     MilestoneHandler,
     GoalHandler,
     ReflexHandler,
+    CacheHandler,
 ):
     """MCP server that exposes NeuralMemory tools.
 
@@ -221,8 +223,22 @@ class MCPServer(
         self._scheduler = build_scheduler(tasks=tasks, config=maint)
         await self._scheduler.start()
 
+        # Warm-start: load activation cache for faster first recall
+        if hasattr(self, "load_activation_cache"):
+            try:
+                await self.load_activation_cache()
+            except Exception as e:
+                logger.debug("Activation cache load skipped: %s", e)
+
     async def stop_scheduler(self) -> None:
         """Stop the unified scheduler and all background tasks."""
+        # Save activation cache before stopping (warm-start for next session)
+        if hasattr(self, "save_activation_cache"):
+            try:
+                await self.save_activation_cache()
+            except Exception as e:
+                logger.debug("Activation cache save skipped: %s", e)
+
         if self._scheduler is not None:
             # Fire session_end event before stopping
             await self._scheduler.trigger("session_end")
@@ -359,6 +375,7 @@ class MCPServer(
             "nmem_goal": self._goal,
             "nmem_causal": self._causal,
             "nmem_reflex": self._reflex,
+            "nmem_cache": self._cache,
         }
         handler = dispatch.get(name)
         if handler:

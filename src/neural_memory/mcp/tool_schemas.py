@@ -2223,4 +2223,24 @@ _ALL_TOOL_SCHEMAS: list[dict[str, Any]] = [
             "required": ["action", "neuron_id"],
         },
     },
+    {
+        "name": "nmem_cache",
+        "description": "Manage activation cache for warm-start recall. "
+        "Cache saves neuron activation states at session end for faster recall on restart. "
+        "Auto-saved on MCP shutdown, auto-loaded on startup. Use status to check hit rate.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["status", "clear", "save", "load"],
+                    "description": "status=show cache stats (hit rate, entries, age), "
+                    "clear=invalidate cache (use after brain modifications), "
+                    "save=force snapshot current activations, "
+                    "load=force restore cached states",
+                },
+            },
+            "required": ["action"],
+        },
+    },
 ]
