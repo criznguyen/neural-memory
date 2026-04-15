@@ -10,6 +10,7 @@ from neural_memory.engine.conflict_detection import (
     Conflict,
     ConflictType,
     TemporalClassification,
+    _classify_temporal,
     _content_agrees,
     _extract_predicates,
     _extract_search_terms,
@@ -24,7 +25,6 @@ from neural_memory.engine.conflict_detection import (
     detect_conflicts,
     resolve_conflicts,
 )
-from neural_memory.engine.conflict_detection import _classify_temporal
 
 # ========== Helper extraction tests ==========
 
