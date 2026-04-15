@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.48.0] — 2026-04-15
+
+### Added
+
+- **Explainable recall (activation paths)** — `nmem_recall` with `include_paths=true` now returns hop-by-hop activation paths showing how each memory was reached via spreading activation
+  - Activation paths were already recorded internally but discarded — now surfaced to MCP responses
+  - Each thought chain entry includes `hops` count and full `path` array when multi-hop
+
+### Removed
+
+- **FalkorDB storage backend** — Removed entirely (~3,900 LOC deleted)
+  - Zero production users, 35% feature coverage, required external Redis server
+  - Deleted: `storage/falkordb/` (9 files), migration CLI, docker-compose service, test suite (6 files)
+  - Cleaned: `unified_config.py`, `pyproject.toml` (removed `[falkordb]` extra), CLI options, docs
+  - Remaining backends: SQLite (default), PostgreSQL, InfinityDB (Pro)
+
+### Tests
+
+- 6,859 unit tests passing
+
+---
+
 ## [Unreleased]
 
 ### Added
