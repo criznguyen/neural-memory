@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.51.0] — 2026-04-18
+
+### Added
+
+- **Living Brain 3D (Pro)**: new dashboard visualization — interactive 3D brain graph where neurons sit inside a translucent brain shell, clustered by cortical zone. Built on `@react-three/fiber` + `@react-three/drei` + `d3-force-3d`. Routes: `/living-brain`, with `ModeToggle` to switch between 2D Sigma and 3D.
+- **Interactivity**: click-to-inspect `NodeDetailPanel` (neighbors, connections, ID), keyboard navigation (`ArrowRight`/`Left`/`Up`/`Down` walk the graph via `useKeyboardNav`), `?focus=<id>` deep-link two-way binding (`useFocusDeepLink`), hover + selection highlight with proximity lerp.
+- **Activation stream**: client-side simulation of "living" brain pulses — delta pulses on layout change + ambient degree-weighted pulses every ~2.5s (±25% jitter). Pulses ride the r3f `frameloop="demand"` via kick-tick invalidation. Reduced-motion users see a still brain.
+- **Stats HUD**: bottom-left neuron / synapse / active / pulses count with `useCountUp` ease-out-cubic animation, tabular-nums monospace.
+- **Pro gate**: free users see a Pro upsell card; `useLivingBrain` + `useActivationStream` never mount for non-Pro users (no `/api/graph` fetch, no background timers).
+- **Share PNG**: `ShareBrain` exports the canvas as a watermarked PNG (1920px max-edge cap, "Neural Memory" watermark, `preserveDrawingBuffer: true` + imperative `gl.render` before `toBlob` so the buffer isn't stale).
+- **Settings drawer**: toggles for effects / brain shell / activation pulse / labels. Zustand `persist` with `version: 1` + `localStorage` key `nm.livingBrain.settings`. Click-outside + Esc dismissal, focus return to trigger.
+- **i18n**: full EN + VI parity for all Living Brain strings (stats, settings, share, upsell, error).
+
+### Improved
+
+- **P3 review fixes** (interactivity phase): SynapseEdges geometry disposal via `key={edges.length}`, dead `?focus=` URL cleanup when layout doesn't know the id, dead-selection clear on layout swap, `onPointerLeave` belt-and-braces for hover clear, focus restore on detail panel close, sphere tessellation bumped to `[1, 16, 16]`.
+- **P4 review fixes** (live phase): Pro gate leak plugged (hooks only mount for Pro), disable-pulse repaints cleared state via kick-tick, share export forces a fresh render via `RendererRegistrar` before reading pixels, `revokeObjectURL` deferred to avoid Firefox/Safari download cancel, `useCountUp` interrupt-safe (starts new tween from live display, not stale start), settings drawer focus management, `AutoRotate` gated by effects setting so the demand frameloop truly idles.
+
+### Tests
+
+- No new Python tests (pure frontend feature). Dashboard chunk 1.03 MB / 279 kB gz, lazy-loaded so non-Pro pages stay trim.
+
 ## [4.50.0] — 2026-04-18
 
 ### Added
