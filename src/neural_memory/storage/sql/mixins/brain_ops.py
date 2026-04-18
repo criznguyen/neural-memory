@@ -374,21 +374,36 @@ class BrainOpsMixin:
 
     async def clear(self, brain_id: str) -> None:
         d = self._dialect
-        for table in (
-            "fiber_neurons",
-            "fibers",
-            "synapses",
-            "neuron_states",
-            "neurons",
-        ):
+        # Wrap in a transaction so partial failure rolls back cleanly.
+        # Delete from child tables first (order matters for FK constraints).
+        # Tables with FK CASCADE (typed_memories, memory_maturations, etc.)
+        # are cleaned automatically when their parent rows are deleted,
+        # but tables without FK to brains must be deleted explicitly.
+        async with d.transaction():
+            for table in (
+                # Junction / child tables first
+                "fiber_neurons",
+                # Auxiliary tables without FK CASCADE to brains
+                "brain_versions",
+                "sync_states",
+                "alerts",
+                "change_log",
+                "devices",
+                "merkle_hashes",
+                # Core tables (CASCADE cleans typed_memories, memory_maturations, etc.)
+                "fibers",
+                "synapses",
+                "neuron_states",
+                "neurons",
+            ):
+                await d.execute(
+                    f"DELETE FROM {table} WHERE brain_id = {d.ph(1)}",
+                    [brain_id],
+                )
             await d.execute(
-                f"DELETE FROM {table} WHERE brain_id = {d.ph(1)}",
+                f"DELETE FROM brains WHERE id = {d.ph(1)}",
                 [brain_id],
             )
-        await d.execute(
-            f"DELETE FROM brains WHERE id = {d.ph(1)}",
-            [brain_id],
-        )
 
     # ================================================================
     # Private -- import helpers

@@ -11,7 +11,7 @@ jobs:
     name: Validate version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Check tag matches source version
         run: |
@@ -50,10 +50,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -77,12 +77,12 @@ jobs:
     needs: ci
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: dashboard/package-lock.json
 
@@ -91,7 +91,7 @@ jobs:
         run: npm ci && npm run build
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -102,7 +102,7 @@ jobs:
         run: python -m build
 
       - name: Store distribution packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: python-package-distributions
           path: dist/
@@ -120,7 +120,7 @@ jobs:
 
     steps:
       - name: Download distributions
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: python-package-distributions
           path: dist/
@@ -139,10 +139,10 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download distributions
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: python-package-distributions
           path: dist/
@@ -171,12 +171,12 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
       - name: Build and publish OpenClaw plugin
@@ -188,24 +188,57 @@ jobs:
           npm run build
           npm publish --access public || echo "Version already published — skipping"
 
-  # ── Publish to ClawHub ─────────────────────────────────────────
+  # ── Publish npm (MCP wrapper) ─────────────────────────────────
+  publish-npm-mcp:
+    name: Publish MCP wrapper to npm
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Sync version from tag and publish
+        working-directory: npm-package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '$VERSION';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+            const srv = JSON.parse(fs.readFileSync('server.json', 'utf8'));
+            srv.version = '$VERSION';
+            srv.packages[0].version = '$VERSION';
+            fs.writeFileSync('server.json', JSON.stringify(srv, null, 2) + '\n');
+          "
+          echo "Publishing neural-memory-mcp@$VERSION"
+          npm publish --access public || echo "Version already published — skipping"
+
+  # ── Publish to ClawHub (OpenClaw skills registry) ──────────────
   publish-clawhub:
     name: Publish to ClawHub
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install ClawHub CLI
-        run: npm install -g clawdhub undici 2>/dev/null || pip install clawdhub 2>/dev/null || true
+        run: npm install -g clawhub 2>/dev/null || true
 
-      - name: Publish to ClawHub
+      - name: Publish skill to ClawHub
         env:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
-          clawdhub login --token "$CLAWHUB_TOKEN" --no-browser
-          clawdhub publish .claude-plugin --slug neural-memory --name "Neural Memory" --version "$VERSION" \
+          clawhub login --token "$CLAWHUB_TOKEN" --no-browser
+          clawhub publish integrations/neural-memory --slug neural-memory --name "Neural Memory" --version "$VERSION" \
             || echo "::warning::ClawHub publish failed — update manually"
 
   # ── Publish VS Code Extension ──────────────────────────────────
@@ -214,12 +247,12 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Build and publish extension
         working-directory: vscode-extension

@@ -17,6 +17,7 @@ from neural_memory.cli._helpers import (
 )
 from neural_memory.safety.freshness import analyze_freshness
 from neural_memory.safety.sensitive import check_sensitive_content
+from neural_memory.utils.timeutils import utcnow
 
 brain_app = typer.Typer(help="Brain management commands")
 
@@ -285,6 +286,36 @@ def brain_import(
         with open(file_path, encoding="utf-8") as f:
             data = json.load(f)
 
+        # Detect .brain package format and extract snapshot
+        package_name: str | None = None
+        if "nmem_brain_package" in data:
+            from neural_memory.engine.brain_package import validate_brain_package
+
+            is_valid, errors = validate_brain_package(data)
+            if not is_valid:
+                typer.secho("Invalid .brain package:", fg=typer.colors.RED, err=True)
+                for err_msg in errors:
+                    typer.secho(f"  - {err_msg}", fg=typer.colors.RED, err=True)
+                raise typer.Exit(1)
+
+            manifest = data["manifest"]
+            typer.echo(
+                f"Detected .brain package: {manifest.get('display_name', '?')} "
+                f"by {manifest.get('author', '?')} "
+                f"(v{manifest.get('version', '?')})"
+            )
+
+            # Derive brain name from manifest
+            if not name:
+                import re
+
+                raw_name = manifest.get("name") or manifest.get("display_name", "")
+                if raw_name:
+                    package_name = re.sub(r"[^a-zA-Z0-9_-]", "-", raw_name)
+                    package_name = re.sub(r"-+", "-", package_name).strip("-").lower()
+
+            data = data["snapshot"]
+
         # Scan for sensitive content
         if scan_sensitive:
             sensitive_count = 0
@@ -302,7 +333,7 @@ def brain_import(
                 if not typer.confirm("Continue importing?"):
                     raise typer.Exit(0)
 
-        brain_name = name or data.get("brain_name", "imported")
+        brain_name = name or package_name or data.get("brain_name", "imported")
         config = get_config()
 
         if brain_name in config.list_brains():
@@ -312,15 +343,19 @@ def brain_import(
             )
             raise typer.Exit(1)
 
-        # Create snapshot
+        # Create snapshot — handle both flat JSON and extracted .brain package
+        import uuid as _uuid
+
         snapshot = BrainSnapshot(
-            brain_id=data["brain_id"],
+            brain_id=data.get("brain_id") or str(_uuid.uuid4()),
             brain_name=brain_name,
-            exported_at=datetime.fromisoformat(data["exported_at"]),
-            version=data["version"],
-            neurons=data["neurons"],
-            synapses=data["synapses"],
-            fibers=data["fibers"],
+            exported_at=datetime.fromisoformat(data["exported_at"])
+            if "exported_at" in data
+            else utcnow(),
+            version=data.get("version", "1.0.0"),
+            neurons=data.get("neurons", []),
+            synapses=data.get("synapses", []),
+            fibers=data.get("fibers", []),
             config=data.get("config", {}),
             metadata=data.get("metadata", {}),
         )

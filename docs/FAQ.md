@@ -8,7 +8,6 @@
 - **CLI tools**: `nmem`, `neural-memory`, `nmem-mcp`
 - **Optional extras**:
   - `[server]` — FastAPI + Uvicorn
-  - `[neo4j]` — Neo4j graph database
   - `[nlp-en]` — English NLP (spaCy)
   - `[nlp-vi]` — Vietnamese NLP (underthesea, pyvi)
   - `[all]` — All of the above
@@ -56,6 +55,34 @@ If installed from source:
 git pull
 pip install -e ".[all,dev]"
 ```
+
+## Troubleshooting
+
+### Q: Something's not working — where do I start?
+
+Follow this decision tree:
+
+1. **MCP server not connecting?**
+    - Check: `nmem-mcp --version` → works? If not, `pip install neural-memory`
+    - Check your MCP config file (`.mcp.json` or `~/.claude.json`) has the correct command
+    - Restart your AI tool after config changes
+
+2. **Recall returns nothing?**
+    - Check: `nmem stats` → `neuron_count > 0`? If zero, store something first with `nmem remember`
+    - Try broader queries — spreading activation needs connected neurons
+
+3. **Memories from wrong project?**
+    - Check: `nmem brain list` → which brain is active?
+    - Switch: `nmem brain switch <name>` or let the MCP auto-detect via git context
+
+4. **Slow performance?**
+    - Check: `nmem health` → look for "consolidation needed" warnings
+    - Run: `nmem consolidate` to compact the brain
+    - Past 10K memories? Consider [Neural Memory Pro](../guides/pro.md) for HNSW-accelerated recall
+
+5. **Import/export issues?**
+    - Export: `nmem export --format json > backup.json`
+    - Import: `nmem import backup.json`
 
 ## VS Code Extension
 
@@ -529,7 +556,7 @@ NeuralMemory is designed for **AI agent memory** — not as a general-purpose da
 
 | Aspect | Status |
 |--------|--------|
-| **Test suite** | 6100+ tests, 67%+ coverage enforced by CI |
+| **Test suite** | 7000+ tests, 67%+ coverage enforced by CI |
 | **Security** | Input validation, ReDoS protection, activation queue caps, sensitive content detection |
 | **Stability** | 51+ releases, used daily by the maintainers in production AI workflows |
 | **Scalability** | Tested up to 5,000 neurons with sub-ms latency; designed for agent-scale data, not big data |

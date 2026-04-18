@@ -249,6 +249,44 @@ _INIT_SQL_TEMPLATE = [
 _MIGRATIONS = [
     "ALTER TABLE typed_memories ADD COLUMN IF NOT EXISTS tier TEXT DEFAULT 'warm'",
     "CREATE INDEX IF NOT EXISTS idx_typed_memories_tier ON typed_memories(brain_id, tier)",
+    # Phase 3: Storage parity — ghost tracking, FTS on summaries, keyword DF
+    "ALTER TABLE fibers ADD COLUMN IF NOT EXISTS last_ghost_shown_at TIMESTAMPTZ",
+    "ALTER TABLE fibers ADD COLUMN IF NOT EXISTS summary_tsv tsvector",
+    # Trigger to auto-update summary tsvector on INSERT/UPDATE
+    """
+    DO $$ BEGIN
+        CREATE OR REPLACE FUNCTION fibers_summary_tsv_trigger() RETURNS trigger AS $fn$
+        BEGIN
+            NEW.summary_tsv := to_tsvector('english', COALESCE(NEW.summary, ''));
+            RETURN NEW;
+        END;
+        $fn$ LANGUAGE plpgsql;
+    EXCEPTION WHEN duplicate_function THEN NULL;
+    END $$
+    """,
+    """
+    DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_trigger WHERE tgname = 'trg_fibers_summary_tsv'
+        ) THEN
+            CREATE TRIGGER trg_fibers_summary_tsv
+            BEFORE INSERT OR UPDATE OF summary ON fibers
+            FOR EACH ROW EXECUTE FUNCTION fibers_summary_tsv_trigger();
+        END IF;
+    END $$
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_fibers_summary_fts ON fibers USING GIN(summary_tsv)",
+    # Keyword document frequency table
+    """
+    CREATE TABLE IF NOT EXISTS keyword_document_frequency (
+        brain_id TEXT NOT NULL,
+        keyword TEXT NOT NULL,
+        fiber_count INTEGER DEFAULT 1,
+        last_updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (brain_id, keyword),
+        FOREIGN KEY (brain_id) REFERENCES brains(id) ON DELETE CASCADE
+    )
+    """,
 ]
 
 

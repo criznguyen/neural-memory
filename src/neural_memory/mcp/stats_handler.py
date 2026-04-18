@@ -94,6 +94,14 @@ class StatsHandler:
         # Storage backend info
         storage_info = self._get_storage_info()
 
+        # Reflex count (non-critical)
+        reflex_count = 0
+        try:
+            reflex_neurons = await storage.find_reflex_neurons(limit=50)
+            reflex_count = len(reflex_neurons)
+        except Exception:
+            logger.debug("Reflex count failed (non-critical)", exc_info=True)
+
         response = {
             "version": __version__,
             "brain": brain.name,
@@ -108,8 +116,43 @@ class StatsHandler:
             "hot_neurons": stats.get("hot_neurons", []),
             "newest_memory": stats.get("newest_memory"),
             "conflicts_active": conflicts_active,
+            "reflex_count": reflex_count,
             "tier_distribution": tier_distribution,
         }
+
+        # Layer status: show global brain stats if it exists
+        try:
+            from neural_memory.unified_config import GLOBAL_BRAIN_NAME
+
+            global_db = self.config.get_brain_db_path(GLOBAL_BRAIN_NAME)
+            if global_db.exists():
+                from neural_memory.storage.sqlite_store import SQLiteStorage
+
+                global_storage = None
+                try:
+                    global_storage = SQLiteStorage(global_db)
+                    await global_storage.initialize()
+                    global_brain = await global_storage.find_brain_by_name(GLOBAL_BRAIN_NAME)
+                    if global_brain:
+                        global_storage.set_brain(global_brain.id)
+                        global_stats = await global_storage.get_enhanced_stats(global_brain.id)
+                        response["layers"] = {
+                            "project": {
+                                "brain": brain.name,
+                                "neuron_count": stats.get("neuron_count", 0),
+                                "fiber_count": stats.get("fiber_count", 0),
+                            },
+                            "global": {
+                                "brain": GLOBAL_BRAIN_NAME,
+                                "neuron_count": global_stats.get("neuron_count", 0),
+                                "fiber_count": global_stats.get("fiber_count", 0),
+                            },
+                        }
+                finally:
+                    if global_storage is not None:
+                        await global_storage.close()
+        except Exception:
+            logger.debug("Layer stats failed (non-critical)", exc_info=True)
 
         # Upgrade URL for free users — agents use this to guide purchase
         if not storage_info["is_pro"]:

@@ -1702,7 +1702,7 @@ class MigrationJobStatus(BaseModel):
 
     job_id: str
     state: Literal["running", "done", "error"] = "running"
-    direction: Literal["to_infinitydb", "to_sqlite"]
+    direction: Literal["to_infinitydb", "to_sqlite", "to_postgres"]
     brain: str
     neurons_total: int = 0
     neurons_done: int = 0
@@ -1718,26 +1718,29 @@ class MigrationJobStatus(BaseModel):
 class StorageStatusResponse(BaseModel):
     """Current storage backend status."""
 
-    current_backend: Literal["sqlite", "infinitydb"]
+    current_backend: Literal["sqlite", "infinitydb", "postgres"]
     pro_installed: bool
     is_pro_license: bool
     sqlite_exists: bool
     sqlite_size_bytes: int = 0
     infinitydb_exists: bool
+    postgres_configured: bool = False
+    postgres_host: str = ""
+    postgres_database: str = ""
     migration_job: MigrationJobStatus | None = None
 
 
 class StartMigrationRequest(BaseModel):
     """Request to start a storage migration."""
 
-    direction: Literal["to_infinitydb", "to_sqlite"]
+    direction: Literal["to_infinitydb", "to_sqlite", "to_postgres"]
     brain: str | None = None
 
 
 class SetBackendRequest(BaseModel):
     """Request to switch active storage backend."""
 
-    backend: Literal["sqlite", "infinitydb"]
+    backend: Literal["sqlite", "infinitydb", "postgres"]
 
 
 # In-memory job store — capped at _MAX_JOBS_PER_BRAIN to prevent unbounded growth
@@ -1794,6 +1797,10 @@ async def get_storage_status() -> StorageStatusResponse:
             active_job = job
             break
 
+    # Postgres config check
+    pg = cfg.postgres
+    pg_configured = bool(pg.host and pg.database)
+
     return StorageStatusResponse(
         current_backend=cfg.storage_backend,
         pro_installed=has_pro(),
@@ -1801,6 +1808,9 @@ async def get_storage_status() -> StorageStatusResponse:
         sqlite_exists=sqlite_exists,
         sqlite_size_bytes=sqlite_size,
         infinitydb_exists=infinitydb_exists,
+        postgres_configured=pg_configured,
+        postgres_host=pg.host if pg_configured else "",
+        postgres_database=pg.database if pg_configured else "",
         migration_job=active_job,
     )
 
@@ -1827,19 +1837,35 @@ async def start_migration(body: StartMigrationRequest) -> dict[str, str]:
                 status_code=403, detail="Pro license not active. Activate via 'nmem pro activate'"
             )
 
-    # Pre-flight: source exists
+    # Pre-flight: postgres check
+    if direction == "to_postgres":
+        pg = cfg.postgres
+        if not pg.host or not pg.database:
+            raise HTTPException(
+                status_code=400,
+                detail="PostgreSQL not configured. Set [postgres] section in config.toml.",
+            )
+
+    # Pre-flight: source exists (check current backend, not target)
     brains_dir = Path(cfg.data_dir) / "brains"
-    if direction == "to_infinitydb":
+    current_backend = cfg.storage_backend
+    if current_backend == "sqlite":
         sqlite_path = brains_dir / f"{brain_name}.db"
         if not sqlite_path.exists():
             raise HTTPException(
                 status_code=404, detail=f"No SQLite database found for brain '{brain_name}'"
             )
-    else:
+    elif current_backend == "infinitydb":
         infinity_marker = brains_dir / brain_name / "brain.inf"
         if not infinity_marker.exists():
             raise HTTPException(
                 status_code=404, detail=f"No InfinityDB data found for brain '{brain_name}'"
+            )
+    elif current_backend == "postgres":
+        pg = cfg.postgres
+        if not pg.host or not pg.database:
+            raise HTTPException(
+                status_code=400, detail="PostgreSQL not configured as current backend"
             )
 
     # Pre-flight: no running job for same brain
@@ -1939,6 +1965,37 @@ async def set_storage_backend(body: SetBackendRequest) -> dict[str, str]:
                 status_code=400,
                 detail="SQLite database not found for this brain.",
             )
+    elif backend == "postgres":
+        pg = cfg.postgres
+        if not pg.host or not pg.database:
+            raise HTTPException(
+                status_code=400,
+                detail="PostgreSQL not configured. Set [postgres] section in config.toml.",
+            )
+        # Test connection
+        try:
+            import asyncpg
+
+            conn = await asyncpg.connect(
+                host=pg.host,
+                port=pg.port,
+                database=pg.database,
+                user=pg.user,
+                password=pg.password,
+                timeout=10,
+            )
+            await conn.close()
+        except ImportError:
+            raise HTTPException(
+                status_code=400,
+                detail="asyncpg not installed. Run: pip install asyncpg",
+            )
+        except Exception as e:
+            logger.error("PostgreSQL connection failed: %s", e)
+            raise HTTPException(
+                status_code=400,
+                detail="PostgreSQL connection failed. Check host, port, credentials, and that the server is running.",
+            )
 
     # Update config and clear storage cache
     new_cfg = dc_replace(cfg, storage_backend=backend)
@@ -1953,6 +2010,50 @@ async def set_storage_backend(body: SetBackendRequest) -> dict[str, str]:
     return {"status": "switched", "backend": backend, "brain": brain_name}
 
 
+@router.post(
+    "/storage/test-connection",
+    summary="Test PostgreSQL connection",
+)
+async def test_postgres_connection() -> dict[str, Any]:
+    """Test connectivity to the configured PostgreSQL instance."""
+    from neural_memory.unified_config import get_config
+
+    cfg = get_config(reload=True)
+    pg = cfg.postgres
+
+    if not pg.host or not pg.database:
+        return {"connected": False, "error": "PostgreSQL not configured in config.toml"}
+
+    try:
+        import asyncpg
+
+        conn = await asyncpg.connect(
+            host=pg.host,
+            port=pg.port,
+            database=pg.database,
+            user=pg.user,
+            password=pg.password,
+            timeout=10,
+        )
+        version = await conn.fetchval("SELECT version()")
+        await conn.close()
+        return {
+            "connected": True,
+            "host": pg.host,
+            "port": pg.port,
+            "database": pg.database,
+            "server_version": version,
+        }
+    except ImportError:
+        return {"connected": False, "error": "asyncpg not installed"}
+    except Exception as e:
+        logger.error("PostgreSQL connection test failed: %s", e)
+        return {
+            "connected": False,
+            "error": "Connection failed. Check host, port, credentials, and that the server is running.",
+        }
+
+
 async def _run_migration_task(
     job_id: str,
     direction: str,
@@ -1965,11 +2066,16 @@ async def _run_migration_task(
 
         cfg = get_config()
 
-        # Open source storage
-        if direction == "to_infinitydb":
+        # Open source storage based on current active backend
+        current = cfg.storage_backend
+        if current == "sqlite":
             source = await _open_sqlite_storage(cfg, brain_name)
-        else:
+        elif current == "infinitydb":
             source = await _open_infinitydb_storage(cfg, brain_name)
+        elif current == "postgres":
+            source = await _open_postgres_storage(cfg, brain_name)
+        else:
+            raise RuntimeError(f"Unsupported source backend: {current}")
 
         # Find brain_id — exact match only, no silent fallback
         brains = await source.list_brains()
@@ -2000,6 +2106,8 @@ async def _run_migration_task(
         # Open target storage
         if direction == "to_infinitydb":
             target = await _open_infinitydb_storage(cfg, brain_name)
+        elif direction == "to_postgres":
+            target = await _open_postgres_storage(cfg, brain_name)
         else:
             target = await _open_sqlite_storage(cfg, brain_name, fresh=True)
 
@@ -2084,5 +2192,33 @@ async def _open_infinitydb_storage(
 
     storage = InfinityDBStorage(base_dir=str(brains_dir), brain_id=brain_name)
     await storage.initialize()
+
+    return storage
+
+
+async def _open_postgres_storage(
+    cfg: Any,
+    brain_name: str,
+) -> Any:
+    """Open a PostgreSQL storage instance for the given brain."""
+    from neural_memory.storage.sql.postgres_dialect import PostgresDialect
+    from neural_memory.storage.sql.sql_storage import SQLStorage
+
+    pg = cfg.postgres
+    dialect = PostgresDialect(
+        host=pg.host,
+        port=pg.port,
+        database=pg.database,
+        user=pg.user,
+        password=pg.password,
+    )
+    await dialect.initialize()
+    storage = SQLStorage(dialect)
+    await storage.initialize()
+
+    # Set brain context if brain exists
+    brain = await storage.get_brain(brain_name)
+    if brain is not None:
+        storage.set_brain(brain.id)
 
     return storage

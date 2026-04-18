@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 storage_app = typer.Typer(
     name="storage",
-    help="Manage storage backend (SQLite, InfinityDB, FalkorDB, PostgreSQL)",
+    help="Manage storage backend (SQLite, InfinityDB, PostgreSQL)",
     no_args_is_help=True,
 )
 
@@ -45,6 +45,10 @@ def storage_status() -> None:
     pro_installed = has_pro()
     is_pro = cfg.is_pro()
 
+    # Check postgres config
+    pg = cfg.postgres
+    pg_configured = bool(pg.host and pg.database)
+
     # Display
     typer.secho("Storage Status", bold=True)
     typer.echo(f"  Brain:           {brain_name}")
@@ -63,6 +67,10 @@ def storage_status() -> None:
         typer.echo(f"  InfinityDB:      {brain_name}/brain.inf (exists)")
     else:
         typer.echo("  InfinityDB:      (no data)")
+    if pg_configured:
+        typer.echo(f"  PostgreSQL:      {pg.host}:{pg.port}/{pg.database}")
+    else:
+        typer.echo("  PostgreSQL:      (not configured)")
     typer.echo()
 
     # Actionable guidance
@@ -84,13 +92,17 @@ def storage_status() -> None:
         typer.secho("InfinityDB Active", fg=typer.colors.GREEN, bold=True)
         typer.echo("  HNSW indexing, tiered compression, and cone queries are available.")
         typer.echo()
+    elif cfg.storage_backend == "postgres":
+        typer.secho("PostgreSQL Active", fg=typer.colors.GREEN, bold=True)
+        typer.echo(f"  Connected to {pg.host}:{pg.port}/{pg.database}")
+        typer.echo()
 
 
 @storage_app.command("switch")
 def storage_switch(
     backend: Annotated[
         str,
-        typer.Argument(help="Target backend: 'sqlite' or 'infinitydb'"),
+        typer.Argument(help="Target backend: 'sqlite', 'infinitydb', or 'postgres'"),
     ],
 ) -> None:
     """Switch active storage backend.
@@ -101,13 +113,14 @@ def storage_switch(
     Examples:
         nmem storage switch infinitydb
         nmem storage switch sqlite
+        nmem storage switch postgres
     """
     from dataclasses import replace
 
     from neural_memory.unified_config import get_config, set_config
 
     backend = backend.lower().strip()
-    valid = ("sqlite", "infinitydb")
+    valid = ("sqlite", "infinitydb", "postgres")
     if backend not in valid:
         typer.secho(f"Invalid backend: {backend}. Choose: {', '.join(valid)}", fg=typer.colors.RED)
         raise typer.Exit(1)
@@ -156,6 +169,27 @@ def storage_switch(
             )
             raise typer.Exit(1)
 
+    # Guard: Postgres requires config + connectivity
+    if backend == "postgres":
+        pg = cfg.postgres
+        if not pg.host or not pg.database:
+            typer.secho(
+                "PostgreSQL not configured. Set connection details in config.toml:\n"
+                "  [postgres]\n"
+                '  host = "localhost"\n'
+                "  port = 5432\n"
+                '  database = "neuralmemory"\n'
+                '  user = "postgres"\n'
+                '  password = "..."',
+                fg=typer.colors.RED,
+            )
+            raise typer.Exit(1)
+
+        # Test connection
+        typer.echo(f"Testing connection to {pg.host}:{pg.port}/{pg.database}...")
+        if not _test_postgres_connection(pg):
+            raise typer.Exit(1)
+
     # Switch
     new_cfg = replace(cfg, storage_backend=backend)
     new_cfg.save()
@@ -163,3 +197,41 @@ def storage_switch(
 
     typer.secho(f"Switched to {backend}.", fg=typer.colors.GREEN)
     typer.echo("Restart your AI tool to use the new backend.")
+
+
+def _test_postgres_connection(pg: object) -> bool:
+    """Test postgres connection. Returns True if successful."""
+    import asyncio
+
+    async def _try_connect() -> bool:
+        try:
+            import asyncpg
+        except ImportError:
+            typer.secho(
+                "asyncpg not installed. Run: pip install asyncpg",
+                fg=typer.colors.RED,
+            )
+            return False
+
+        try:
+            conn = await asyncpg.connect(
+                host=getattr(pg, "host", "localhost"),
+                port=getattr(pg, "port", 5432),
+                database=getattr(pg, "database", "neuralmemory"),
+                user=getattr(pg, "user", "postgres"),
+                password=getattr(pg, "password", ""),
+                timeout=10,
+            )
+            await conn.close()
+            typer.secho("Connection successful.", fg=typer.colors.GREEN)
+            return True
+        except Exception as e:
+            # Sanitize: error messages may contain credentials
+            err_msg = str(e)
+            password = getattr(pg, "password", "")
+            if password and password in err_msg:
+                err_msg = err_msg.replace(password, "***")
+            typer.secho(f"Connection failed: {err_msg}", fg=typer.colors.RED)
+            return False
+
+    return asyncio.run(_try_connect())

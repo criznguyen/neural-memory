@@ -952,7 +952,13 @@ class ConsolidationEngine:
 
             if not dry_run:
                 # H2 fix: add merged fiber FIRST, then modify originals
-                await self._storage.add_fiber(merged_fiber)
+                try:
+                    await self._storage.add_fiber(merged_fiber)
+                except ValueError as exc:
+                    # FK failure — referenced neurons may have been pruned or
+                    # are mid-transaction in another process.  Skip this merge.
+                    logger.warning("Skipping fiber merge %s: %s", merged_fiber.id, exc)
+                    continue
                 if is_summary:
                     # T4.4: Demote originals to COLD instead of deleting
                     for fiber in member_fibers:
@@ -1112,7 +1118,11 @@ class ConsolidationEngine:
                     "source_fibers": [f.id for f in cluster_fibers],
                 },
             )
-            await self._storage.add_fiber(summary_fiber)
+            try:
+                await self._storage.add_fiber(summary_fiber)
+            except ValueError as exc:
+                logger.warning("Skipping summary fiber %s: %s", summary_fiber.id, exc)
+                continue
             report.summaries_created += 1
 
     async def _mature(

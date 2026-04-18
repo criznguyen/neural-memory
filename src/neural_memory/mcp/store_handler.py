@@ -53,6 +53,8 @@ class StoreHandler:
                 return await self._store_export(args)
             if action == "publish":
                 return await self._store_publish(args)
+            if action == "delete":
+                return await self._store_delete(args)
             return {"error": f"Unknown store action: {action}"}
         except Exception as e:
             logger.error("Store %s failed: %s", action, e)
@@ -252,6 +254,57 @@ class StoreHandler:
                 "content_hash": manifest.get("content_hash", ""),
             },
             "hint": "Use output_path to save the .brain file to disk, or action='publish' to share with the community",
+        }
+
+    async def _store_delete(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Delete a local brain and all its data."""
+        brain_id = args.get("brain_id")
+        if not brain_id:
+            return {"error": "brain_id is required for delete"}
+
+        storage = await self.get_storage()
+
+        # Verify the brain exists before deleting
+        brain = await storage.get_brain(brain_id)
+        if brain is None:
+            return {"error": f"Brain '{brain_id}' not found"}
+
+        # Prevent deleting the currently active brain
+        current_brain_id = getattr(storage, "_brain_id", None)
+        if current_brain_id == brain_id:
+            return {
+                "error": "Cannot delete the currently active brain. Switch to another brain first."
+            }
+
+        # Get stats for preview / confirmation
+        stats = await storage.get_stats(brain_id)
+
+        # Without confirm=true, return a preview of what would be deleted
+        if not args.get("confirm"):
+            return {
+                "status": "pending_confirmation",
+                "brain_id": brain_id,
+                "brain_name": brain.name,
+                "will_delete": {
+                    "neurons": stats.get("neuron_count", 0),
+                    "synapses": stats.get("synapse_count", 0),
+                    "fibers": stats.get("fiber_count", 0),
+                },
+                "message": "This will permanently delete the brain and all its data. "
+                "Call again with confirm=true to proceed.",
+            }
+
+        await storage.clear(brain_id)
+
+        return {
+            "status": "deleted",
+            "brain_id": brain_id,
+            "deleted": {
+                "neurons": stats.get("neuron_count", 0),
+                "synapses": stats.get("synapse_count", 0),
+                "fibers": stats.get("fiber_count", 0),
+            },
+            "message": "Brain and all associated data permanently deleted",
         }
 
     async def _store_publish(self, args: dict[str, Any]) -> dict[str, Any]:

@@ -235,12 +235,18 @@ async def format_context_budgeted(
     brain_id: str = "",
     budget_config: BudgetConfig | None = None,
     clean_for_prompt: bool = False,
+    query_terms: list[str] | None = None,
+    compile: bool = True,
 ) -> tuple[str, int, BudgetAllocation]:
     """Format memories with budget-aware fiber selection.
 
     Unlike format_context() which processes fibers in order and truncates,
     this function selects the highest value-per-token fibers first, ensuring
     the most valuable memories fit within the token budget.
+
+    When query_terms is provided and compile=True, runs cross-fiber
+    deduplication, sentence-level merging, and query-relevance re-scoring
+    via compile_context() before formatting.
 
     Args:
         storage: Neural storage backend.
@@ -250,6 +256,11 @@ async def format_context_budgeted(
         encryptor: Optional memory encryptor for decryption.
         brain_id: Active brain ID (for decryption).
         budget_config: Optional budget configuration overrides.
+        clean_for_prompt: If True, emit clean bullet text without headers.
+        query_terms: Query terms for relevance re-scoring and dedup.
+            When None or empty, compilation is skipped (backward compat).
+        compile: Master toggle for the compile step. Set False to disable
+            compilation even when query_terms is provided.
 
     Returns:
         Tuple of (formatted_context, token_estimate, budget_allocation).
@@ -318,7 +329,73 @@ async def format_context_budgeted(
         reverse=True,
     )
 
-    # Reuse existing format_context logic on the budget-selected subset
+    # --- Compile step (dedup + merge + rescore) ---
+    # Only runs when query_terms is provided AND compile=True AND cfg.enable_compiler.
+    # Produces a content-override map {fiber_id: compiled_content} used during
+    # formatting. Does NOT mutate fiber objects or add new storage calls.
+    compiled_content: dict[str, str] = {}
+    _should_compile = (
+        compile and cfg.enable_compiler and bool(query_terms) and bool(selected_fibers)
+    )
+    if _should_compile:
+        from neural_memory.engine.context_compiler import CompiledChunk, compile_context
+
+        def _maybe_decrypt_inline(text: str, fiber_meta: dict[str, Any]) -> str:
+            if encryptor and brain_id and fiber_meta.get("encrypted"):
+                return encryptor.decrypt(text, brain_id)
+            return text
+
+        raw_chunks: list[CompiledChunk] = []
+        for fiber in selected_fibers:
+            if fiber.summary:
+                raw_text = _maybe_decrypt_inline(fiber.summary, fiber.metadata)
+            else:
+                anchor = anchor_map.get(fiber.anchor_neuron_id)
+                raw_text = _maybe_decrypt_inline(anchor.content, fiber.metadata) if anchor else ""
+            if not raw_text:
+                continue
+
+            act_score: float = 0.0
+            if fiber.anchor_neuron_id in activations:
+                act_score = activations[fiber.anchor_neuron_id].activation_level
+            elif fiber.neuron_ids:
+                for nid in fiber.neuron_ids:
+                    ar = activations.get(nid)
+                    if ar is not None:
+                        act_score = max(act_score, ar.activation_level)
+
+            raw_chunks.append(
+                CompiledChunk(
+                    fiber_id=fiber.id,
+                    content=raw_text,
+                    activation_score=act_score,
+                    created_at=fiber.created_at,
+                    summary=fiber.summary,
+                )
+            )
+
+        compiled = compile_context(
+            raw_chunks,
+            query_terms=list(query_terms or []),
+            dedup_threshold=cfg.compiler_dedup_threshold,
+        )
+        # Build override map — only for fibers that survived compilation.
+        # Fibers that were merged into another will simply be absent (format_context
+        # will re-fetch them normally, but we reorder selected_fibers by compiled order).
+        for chunk in compiled:
+            compiled_content[chunk.fiber_id] = chunk.content
+
+        # Re-order selected_fibers to match compiled ranking (highest final_score first).
+        # Fibers not in compiled_content (merged away) are dropped.
+        compiled_fiber_ids_ordered = [c.fiber_id for c in compiled]
+        fiber_by_id = {f.id: f for f in selected_fibers}
+        selected_fibers = [
+            fiber_by_id[fid] for fid in compiled_fiber_ids_ordered if fid in fiber_by_id
+        ]
+
+    # Reuse existing format_context logic on the budget-selected subset.
+    # When compiled_content is populated, format_context still fetches anchors but
+    # the compiled text overrides raw anchor content for the affected fibers.
     formatted, token_estimate = await format_context(
         storage=storage,
         activations=activations,
@@ -327,6 +404,7 @@ async def format_context_budgeted(
         encryptor=encryptor,
         brain_id=brain_id,
         clean_for_prompt=clean_for_prompt,
+        _compiled_content=compiled_content if compiled_content else None,
     )
 
     return formatted, token_estimate, allocation
@@ -340,6 +418,7 @@ async def format_context(
     encryptor: MemoryEncryptor | None = None,
     brain_id: str = "",
     clean_for_prompt: bool = False,
+    _compiled_content: dict[str, str] | None = None,
 ) -> tuple[str, int]:
     """Format activated memories into context for agent injection.
 
@@ -347,6 +426,10 @@ async def format_context(
         clean_for_prompt: If True, emit clean bullet-point text without
             section headers or neuron-type tags. Prevents self-referential
             noise when output is re-ingested by auto-capture.
+        _compiled_content: Internal override map {fiber_id: content} produced
+            by the compile step in format_context_budgeted. When a fiber_id
+            is present here, its compiled content is used instead of the raw
+            anchor/summary content. Not part of the public API.
 
     Returns:
         Tuple of (formatted_context, token_estimate).
@@ -366,11 +449,21 @@ async def format_context(
         if not clean_for_prompt:
             lines.append("## Relevant Memories\n")
 
-        anchor_ids = list({f.anchor_neuron_id for f in fibers[:5] if not f.summary})
+        # Only fetch anchors for fibers that are NOT already covered by compiled_content
+        anchor_ids = list(
+            {
+                f.anchor_neuron_id
+                for f in fibers[:5]
+                if not f.summary and (_compiled_content is None or f.id not in _compiled_content)
+            }
+        )
         anchor_map = await storage.get_neurons_batch(anchor_ids) if anchor_ids else {}
 
         for fiber in fibers[:5]:
-            if fiber.summary:
+            # Compiled content takes priority over raw summary/anchor
+            if _compiled_content and fiber.id in _compiled_content:
+                content = _compiled_content[fiber.id]
+            elif fiber.summary:
                 content = fiber.summary
             else:
                 anchor = anchor_map.get(fiber.anchor_neuron_id)

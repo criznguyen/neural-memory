@@ -28,8 +28,10 @@ from typing import TYPE_CHECKING, Any
 
 from neural_memory import __version__
 from neural_memory.engine.hooks import HookRegistry
+from neural_memory.engine.scheduler import SchedulerCore
 from neural_memory.mcp.alert_handler import AlertHandler
 from neural_memory.mcp.auto_handler import AutoHandler
+from neural_memory.mcp.cache_handler import CacheHandler
 from neural_memory.mcp.cognitive_handler import CognitiveHandler
 from neural_memory.mcp.conflict_handler import ConflictHandler
 from neural_memory.mcp.connection_handler import ConnectionHandler
@@ -37,6 +39,7 @@ from neural_memory.mcp.db_train_handler import DBTrainHandler
 from neural_memory.mcp.drift_handler import DriftHandler
 from neural_memory.mcp.eternal_handler import EternalHandler
 from neural_memory.mcp.expiry_cleanup_handler import ExpiryCleanupHandler
+from neural_memory.mcp.goal_handler import GoalHandler
 from neural_memory.mcp.index_handler import IndexHandler
 from neural_memory.mcp.maintenance_handler import MaintenanceHandler
 from neural_memory.mcp.mem0_sync_handler import Mem0SyncHandler
@@ -44,6 +47,7 @@ from neural_memory.mcp.milestone_handler import MilestoneHandler
 from neural_memory.mcp.narrative_handler import NarrativeHandler
 from neural_memory.mcp.onboarding_handler import OnboardingHandler
 from neural_memory.mcp.prompt import get_mcp_instructions, get_system_prompt
+from neural_memory.mcp.reflex_handler import ReflexHandler
 from neural_memory.mcp.review_handler import ReviewHandler
 from neural_memory.mcp.scheduled_consolidation_handler import ScheduledConsolidationHandler
 from neural_memory.mcp.session_handler import SessionHandler
@@ -107,6 +111,9 @@ class MCPServer(
     TelegramHandler,
     DriftHandler,
     MilestoneHandler,
+    GoalHandler,
+    ReflexHandler,
+    CacheHandler,
 ):
     """MCP server that exposes NeuralMemory tools.
 
@@ -147,6 +154,7 @@ class MCPServer(
         self._surface_text: str = ""
         self._surface_brain: str = ""
         self._agent_id: str = ""
+        self._scheduler: SchedulerCore | None = None
 
     async def get_storage(self) -> NeuralStorage:
         """Get or create shared storage instance.
@@ -191,6 +199,56 @@ class MCPServer(
         self._surface_brain = brain_name
         return self._surface_text
 
+    async def start_scheduler(self) -> None:
+        """Build and start the unified scheduler with all background tasks."""
+        from neural_memory.engine.scheduler_factory import build_scheduler
+
+        maint = self.config.maintenance
+
+        # Collect task implementations from handler mixins
+        tasks: dict[str, Any] = {}
+
+        # INTERVAL tasks — existing handler methods wrapped as standalone coroutines
+        # _run_scheduled_consolidation(cfg) needs MaintenanceConfig; the scheduler
+        # calls fn() with no args, so bind cfg via closure.
+        if hasattr(self, "_run_scheduled_consolidation"):
+            tasks["consolidation"] = lambda: self._run_scheduled_consolidation(maint)
+        if hasattr(self, "_check_latest_version"):
+            tasks["version_check"] = self._check_latest_version
+
+        # EVENT tasks
+        if hasattr(self, "run_session_end_consolidation"):
+            tasks["session_end"] = self.run_session_end_consolidation
+
+        self._scheduler = build_scheduler(tasks=tasks, config=maint)
+        await self._scheduler.start()
+
+        # Warm-start: load activation cache for faster first recall
+        if hasattr(self, "load_activation_cache"):
+            try:
+                await self.load_activation_cache()
+            except Exception as e:
+                logger.debug("Activation cache load skipped: %s", e)
+
+    async def stop_scheduler(self) -> None:
+        """Stop the unified scheduler and all background tasks."""
+        # Save activation cache before stopping (warm-start for next session)
+        if hasattr(self, "save_activation_cache"):
+            try:
+                await self.save_activation_cache()
+            except Exception as e:
+                logger.debug("Activation cache save skipped: %s", e)
+
+        if self._scheduler is not None:
+            # Fire session_end event before stopping
+            await self._scheduler.trigger("session_end")
+            await self._scheduler.stop()
+
+    def scheduler_tick(self) -> None:
+        """Notify the scheduler of an operation (for OP_COUNTER tasks)."""
+        if self._scheduler is not None:
+            self._scheduler.tick()
+
     def get_resources(self) -> list[dict[str, Any]]:
         """Return list of available MCP resources."""
         return [
@@ -224,6 +282,36 @@ class MCPServer(
         tools = get_tool_schemas_for_tier(tier)
         tools.extend(get_plugin_tools())
         return tools
+
+    # Tools that modify brain state (need write access when ACL is enabled)
+    _WRITE_TOOLS: frozenset[str] = frozenset(
+        {
+            "nmem_remember",
+            "nmem_remember_batch",
+            "nmem_edit",
+            "nmem_forget",
+            "nmem_consolidate",
+            "nmem_pin",
+            "nmem_reflex",
+            "nmem_goal",
+            "nmem_import",
+            "nmem_train",
+            "nmem_train_db",
+            "nmem_lifecycle",
+            "nmem_refine",
+            "nmem_report_outcome",
+            "nmem_tier",
+            "nmem_boundaries",
+            "nmem_milestone",
+            "nmem_store",
+            "nmem_evidence",
+            "nmem_hypothesize",
+            "nmem_predict",
+            "nmem_verify",
+            "nmem_schema",
+            "nmem_provenance",
+        }
+    )
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Dispatch a tool call to the appropriate handler."""
@@ -284,9 +372,39 @@ class MCPServer(
             "nmem_boundaries": self._boundaries,
             "nmem_milestone": self._milestone,
             "nmem_store": self._store,
+            "nmem_goal": self._goal,
+            "nmem_causal": self._causal,
+            "nmem_reflex": self._reflex,
+            "nmem_cache": self._cache,
         }
         handler = dispatch.get(name)
         if handler:
+            # ACL enforcement (opt-in)
+            try:
+                from neural_memory.engine.brain_acl import (
+                    AccessDeniedError,
+                    require_read,
+                    require_write,
+                )
+                from neural_memory.utils.config import get_config as get_app_config
+
+                app_config = get_app_config()
+                if app_config.enforce_brain_acl:
+                    storage = await self.get_storage()
+                    brain_id = getattr(storage, "_current_brain_id", None)
+                    if brain_id:
+                        brain = await storage.get_brain(brain_id)
+                        if brain is not None:
+                            user_id = self._agent_id or None
+                            require_read(brain, user_id, enforce=True)
+                            # Write tools need write access
+                            if name in self._WRITE_TOOLS:
+                                require_write(brain, user_id, enforce=True)
+            except AccessDeniedError as e:
+                return {"error": str(e)}
+            except Exception:
+                pass  # ACL check failure is non-blocking
+
             return await handler(arguments)
 
         # Check plugin-provided tools
@@ -441,8 +559,10 @@ async def handle_message(server: MCPServer, message: dict[str, Any]) -> dict[str
         t0 = utcnow()
         success = True
         try:
-            result = await asyncio.wait_for(
-                server.call_tool(tool_name, tool_args),
+            result = await _call_tool_with_retry(
+                server,
+                tool_name,
+                tool_args,
                 timeout=_TOOL_CALL_TIMEOUT,
             )
 
@@ -522,6 +642,52 @@ async def handle_message(server: MCPServer, message: dict[str, Any]) -> dict[str
 
 _TOOL_CALL_TIMEOUT = 30.0  # seconds
 _MAX_MESSAGE_SIZE = 10 * 1024 * 1024  # 10 MB
+_DB_LOCKED_MAX_RETRIES = 3
+_DB_LOCKED_BASE_DELAY = 0.5  # seconds
+
+
+async def _call_tool_with_retry(
+    server: MCPServer,
+    tool_name: str,
+    tool_args: dict[str, Any],
+    *,
+    timeout: float,
+) -> dict[str, Any]:
+    """Call a tool with retry on SQLite 'database is locked' errors.
+
+    Multi-process access (MCP + ``nmem serve``) can cause transient lock
+    contention even with WAL mode and a 30-second busy_timeout.  This
+    wrapper retries up to 3 times with exponential back-off so callers
+    see a successful result rather than ``-32000``.
+    """
+    import sqlite3
+
+    last_exc: Exception | None = None
+    for attempt in range(_DB_LOCKED_MAX_RETRIES):
+        try:
+            return await asyncio.wait_for(
+                server.call_tool(tool_name, tool_args),
+                timeout=timeout,
+            )
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower():
+                raise
+            last_exc = exc
+            delay = _DB_LOCKED_BASE_DELAY * (2**attempt)
+            logger.warning(
+                "DB locked on '%s' (attempt %d/%d), retrying in %.1fs",
+                tool_name,
+                attempt + 1,
+                _DB_LOCKED_MAX_RETRIES,
+                delay,
+            )
+            await asyncio.sleep(delay)
+        except Exception:
+            raise
+
+    # Exhausted retries — re-raise the last locked error
+    assert last_exc is not None
+    raise last_exc
 
 
 def _lazy_init() -> None:
@@ -561,17 +727,20 @@ async def run_mcp_server() -> None:
     except Exception:
         logger.debug("Mem0 auto-sync startup failed (non-critical)", exc_info=True)
 
-    # Start scheduled consolidation loop if configured
+    # Start unified scheduler (consolidation, version check, session_end, etc.)
     try:
-        await server.maybe_start_scheduled_consolidation()
+        await server.start_scheduler()
     except Exception:
-        logger.debug("Scheduled consolidation startup failed (non-critical)", exc_info=True)
-
-    # Start background version check if configured
-    try:
-        await server.maybe_start_version_check()
-    except Exception:
-        logger.debug("Version check startup failed (non-critical)", exc_info=True)
+        logger.debug("Unified scheduler startup failed, falling back", exc_info=True)
+        # Fallback: start tasks individually (backward compat)
+        try:
+            await server.maybe_start_scheduled_consolidation()
+        except Exception:
+            logger.debug("Scheduled consolidation startup failed", exc_info=True)
+        try:
+            await server.maybe_start_version_check()
+        except Exception:
+            logger.debug("Version check startup failed", exc_info=True)
 
     try:
         while True:
@@ -612,13 +781,18 @@ async def run_mcp_server() -> None:
             except KeyboardInterrupt:
                 break
     finally:
-        # Run session-end consolidation before shutdown (MATURE + INFER + ENRICH)
+        # Stop unified scheduler (fires session_end event, then cancels all)
         try:
-            await server.run_session_end_consolidation()
+            await server.stop_scheduler()
         except Exception:
-            logger.debug("Session-end consolidation skipped", exc_info=True)
+            logger.debug("Scheduler shutdown failed, cleaning up manually", exc_info=True)
+            # Fallback: manual cleanup
+            try:
+                await server.run_session_end_consolidation()
+            except Exception:
+                logger.debug("Session-end consolidation skipped", exc_info=True)
 
-        # Cancel background tasks
+        # Cancel any remaining background tasks (Mem0, legacy handlers)
         server.cancel_mem0_sync()
         server.cancel_expiry_cleanup()
         server.cancel_scheduled_consolidation()

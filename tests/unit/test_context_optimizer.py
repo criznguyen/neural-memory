@@ -141,7 +141,7 @@ class TestCompositeScore:
 
     def test_defaults(self) -> None:
         score = compute_composite_score()
-        expected = 0.30 * 0.0 + 0.25 * 0.5 + 0.20 * 0.0 + 0.15 * 0.5 + 0.10 * 0.5
+        expected = 0.25 * 0.0 + 0.25 * 0.5 + 0.20 * 0.0 + 0.15 * 0.5 + 0.15 * 0.5
         assert score == pytest.approx(expected)
 
 

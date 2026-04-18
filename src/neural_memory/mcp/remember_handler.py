@@ -64,6 +64,41 @@ class RememberHandler:
 
     # ──────────────────── Helpers ────────────────────
 
+    async def _get_global_storage(self) -> NeuralStorage | None:
+        """Get storage for the global brain (cross-project layer).
+
+        Creates the global brain if it doesn't exist. Returns None if
+        global brain cannot be initialized. Caller must close the returned
+        storage when done.
+        """
+        from neural_memory.unified_config import GLOBAL_BRAIN_NAME
+
+        storage = None
+        try:
+            await self.config.ensure_global_brain()
+
+            from neural_memory.storage.sqlite_store import SQLiteStorage
+
+            db_path = self.config.get_brain_db_path(GLOBAL_BRAIN_NAME)
+            storage = SQLiteStorage(db_path)
+            await storage.initialize()
+
+            brain = await storage.find_brain_by_name(GLOBAL_BRAIN_NAME)
+            if brain:
+                storage.set_brain(brain.id)
+                return storage
+
+            await storage.close()
+            return None
+        except Exception:
+            logger.debug("Failed to get global storage", exc_info=True)
+            if storage is not None:
+                try:
+                    await storage.close()
+                except Exception:
+                    pass
+            return None
+
     async def _check_cross_language_hint(
         self,
         query: str,
@@ -112,7 +147,7 @@ class RememberHandler:
 
             # Language mismatch detected — build hint
             try:
-                import sentence_transformers as _st  # noqa: F401
+                import sentence_transformers as _st
 
                 return (
                     f"Your query is in {'Vietnamese' if query_lang == 'vi' else 'English'} "
@@ -285,6 +320,79 @@ class RememberHandler:
         else:
             mem_type = suggest_memory_type(content)
 
+        # Layer routing: determine save destination (project vs global brain)
+        layer_decision = None
+        global_storage = None
+        try:
+            from neural_memory.engine.layer_router import MemoryLayer, route_memory
+
+            layer_decision = route_memory(
+                memory_type=mem_type.value,
+                is_ephemeral=bool(args.get("ephemeral", False)),
+                explicit_layer=args.get("layer"),
+            )
+
+            if layer_decision.layer == MemoryLayer.GLOBAL:
+                global_storage = await self._get_global_storage()
+                if global_storage is not None:
+                    storage = global_storage
+                    brain, err = await _get_brain_or_error(storage)
+                    if err:
+                        # Fall back to project brain if global brain has issues
+                        logger.debug("Global brain error, falling back to project")
+                        storage = await self.get_storage()
+                        brain, err = await _get_brain_or_error(storage)
+                        if err:
+                            return err
+                        layer_decision = None  # reset — saved to project
+            elif layer_decision.layer == MemoryLayer.SESSION:
+                # SESSION layer = ephemeral flag (handled downstream)
+                # Don't report layer=session if ephemeral was already set
+                if not bool(args.get("ephemeral", False)):
+                    layer_decision = None  # auto-routing to session without ephemeral — skip
+        except Exception:
+            logger.debug("Layer routing failed, using project brain", exc_info=True)
+
+        try:
+            return await self._remember_save(
+                args,
+                content,
+                mem_type,
+                storage,
+                brain,
+                layer_decision,
+                is_auto_capture,
+                redacted_matches,
+                remaining_matches,
+                sensitive_detected,
+                should_encrypt,
+                encrypted_content,
+                encryption_meta,
+            )
+        finally:
+            if global_storage is not None:
+                try:
+                    await global_storage.close()
+                except Exception:
+                    logger.debug("Global storage cleanup failed", exc_info=True)
+
+    async def _remember_save(
+        self,
+        args: dict[str, Any],
+        content: str,
+        mem_type: MemoryType,
+        storage: NeuralStorage,
+        brain: Any,
+        layer_decision: Any,
+        is_auto_capture: bool,
+        redacted_matches: list[Any],
+        remaining_matches: list[Any],
+        sensitive_detected: bool,
+        should_encrypt: bool,
+        encrypted_content: str | None,
+        encryption_meta: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Inner save logic for _remember — extracted for global storage cleanup."""
         # Phase A: Merge structured context into content
         raw_context = args.get("context")
         if raw_context and isinstance(raw_context, dict):
@@ -320,41 +428,11 @@ class RememberHandler:
 
             priority = Priority.from_int(auto_score)
 
-        # Build dedup pipeline if enabled
-        dedup_pipeline = None
-        try:
-            dedup_settings = self.config.dedup
-            if isinstance(dedup_settings.enabled, bool) and dedup_settings.enabled:
-                from neural_memory.engine.dedup.config import DedupConfig
-                from neural_memory.engine.dedup.pipeline import DedupPipeline
+        # SimHash dedup always runs (pure Python, zero cost).
+        # Full dedup (embedding + LLM) only when [dedup] enabled = true.
+        from neural_memory.engine.dedup import build_dedup_pipeline
 
-                dedup_cfg = DedupConfig(
-                    enabled=True,
-                    simhash_threshold=int(dedup_settings.simhash_threshold),
-                    embedding_threshold=float(dedup_settings.embedding_threshold),
-                    embedding_ambiguous_low=float(dedup_settings.embedding_ambiguous_low),
-                    llm_enabled=bool(dedup_settings.llm_enabled),
-                    llm_provider=str(dedup_settings.llm_provider),
-                    llm_model=str(dedup_settings.llm_model),
-                    llm_max_pairs_per_encode=int(dedup_settings.llm_max_pairs_per_encode),
-                    merge_strategy=str(dedup_settings.merge_strategy),
-                    max_candidates=int(dedup_settings.max_candidates),
-                )
-
-                # Create LLM judge if enabled
-                llm_judge = None
-                if dedup_cfg.llm_enabled and dedup_cfg.llm_provider != "none":
-                    from neural_memory.engine.dedup.llm_judge import create_judge
-
-                    llm_judge = create_judge(dedup_cfg.llm_provider, dedup_cfg.llm_model)
-
-                dedup_pipeline = DedupPipeline(
-                    config=dedup_cfg,
-                    storage=storage,
-                    llm_judge=llm_judge,
-                )
-        except (AttributeError, TypeError, ValueError):
-            dedup_pipeline = None
+        dedup_pipeline = build_dedup_pipeline(self.config.dedup, storage)
 
         encoder = MemoryEncoder(storage, brain.config, dedup_pipeline=dedup_pipeline)
 
@@ -598,6 +676,38 @@ class RememberHandler:
             context=raw_context if isinstance(raw_context, dict) else None,
         )
 
+        # Compact mode: minimal response for agent efficiency (saves ~200-400 tokens)
+        compact = bool(args.get("compact", True))
+        if compact:
+            compact_response: dict[str, Any] = {
+                "success": True,
+                "fiber_id": result.fiber.id,
+                "memory_type": mem_type.value,
+            }
+            # Only surface critical warnings in compact mode
+            if redacted_matches:
+                compact_response["auto_redacted"] = True
+            try:
+                conflicts_detected = int(result.conflicts_detected)
+            except (TypeError, ValueError, AttributeError):
+                conflicts_detected = 0
+            if conflicts_detected > 0:
+                compact_response["conflicts_detected"] = conflicts_detected
+            dedup_alias_of = result.fiber.metadata.get("_dedup_alias_of")
+            if dedup_alias_of is None and result.neurons_created:
+                for neuron in result.neurons_created:
+                    dedup_alias_of = neuron.metadata.get("_dedup_alias_of")
+                    if dedup_alias_of:
+                        break
+            if dedup_alias_of:
+                compact_response["dedup_hint"] = (
+                    "Similar memory exists — consider nmem_edit to update"
+                )
+            deja_vu = (result.fiber.metadata or {}).get("_deja_vu")
+            if deja_vu:
+                compact_response["deja_vu_warnings"] = len(deja_vu)
+            return compact_response
+
         response: dict[str, Any] = {
             "success": True,
             "fiber_id": result.fiber.id,
@@ -688,6 +798,15 @@ class RememberHandler:
             response["conflicts_detected"] = conflicts_detected
             response["message"] += f" ({conflicts_detected} conflict(s) detected)"
 
+        # Déjà vu warnings: surface scar tissue from encode pipeline
+        deja_vu = (result.fiber.metadata or {}).get("_deja_vu")
+        if deja_vu:
+            response["deja_vu_warnings"] = deja_vu
+            response["message"] += (
+                f" ⚠ {len(deja_vu)} déjà vu warning(s): similar content was involved"
+                " in past error/decision chains"
+            )
+
         hint = self._get_maintenance_hint(pulse)
         if hint:
             response["maintenance_hint"] = hint
@@ -776,6 +895,10 @@ class RememberHandler:
         alert_info = await self._surface_pending_alerts()
         if alert_info:
             response.update(alert_info)
+
+        # Layer routing info
+        if layer_decision is not None:
+            response["layer"] = layer_decision.to_dict()
 
         return response
 

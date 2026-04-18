@@ -304,6 +304,23 @@ class SQLiteNeuronMixin:
 
         return result
 
+    async def find_reflex_neurons(self, limit: int = 50) -> list[Neuron]:
+        """Find neurons flagged as reflexes for the current brain.
+
+        Uses json_extract for efficient metadata filtering without full scan.
+        """
+        conn = self._ensure_read_conn()
+        brain_id = self._get_brain_id()
+        capped = min(limit, 50)
+        query = (
+            "SELECT * FROM neurons "
+            "WHERE brain_id = ? AND json_extract(metadata, '$._reflex') = 1 "
+            "ORDER BY created_at DESC LIMIT ?"
+        )
+        async with conn.execute(query, [brain_id, capped]) as cursor:
+            rows = await cursor.fetchall()
+            return [row_to_neuron(row) for row in rows]
+
     async def update_neuron(self, neuron: Neuron) -> None:
         conn = self._ensure_conn()
         brain_id = self._get_brain_id()

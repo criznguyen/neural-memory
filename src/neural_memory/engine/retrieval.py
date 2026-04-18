@@ -77,6 +77,7 @@ if TYPE_CHECKING:
     from neural_memory.engine.depth_prior import AdaptiveDepthSelector, DepthDecision
     from neural_memory.engine.embedding.provider import EmbeddingProvider
     from neural_memory.engine.ppr_activation import PPRActivation
+    from neural_memory.engine.session_state import SessionState
     from neural_memory.storage.base import NeuralStorage
 
 
@@ -168,6 +169,10 @@ class ReflexPipeline:
         self._priming_metrics: collections.OrderedDict[str, Any] = collections.OrderedDict()
         self._max_session_cache = 256
 
+        # Warm-start: cached activation levels from prior sessions (ActivationCache).
+        # Populated via set_warm_activations() at startup.
+        self._warm_activations: dict[str, float] | None = None
+
         # Adaptive depth selection (Bayesian priors)
         self._adaptive_selector: AdaptiveDepthSelector | None = None
         if config.adaptive_depth_enabled:
@@ -177,6 +182,15 @@ class ReflexPipeline:
                 storage,
                 epsilon=config.adaptive_depth_epsilon,
             )
+
+    def set_warm_activations(self, warm: dict[str, float] | None) -> None:
+        """Set warm activation levels for anchor boosting (from ActivationCache).
+
+        Called at startup after loading cache snapshot. Anchors present in
+        `warm` start with elevated initial activation (max of default and cached).
+        Pass None to disable warm-start.
+        """
+        self._warm_activations = warm
 
     def _get_encryptor(self) -> Any:
         """Get cached MemoryEncryptor instance, or None if encryption disabled."""
@@ -220,6 +234,7 @@ class ReflexPipeline:
         tag_mode: str = "and",
         as_of: datetime | None = None,
         simhash_threshold: int | None = None,
+        exclude_reflexes: bool = False,
     ) -> RetrievalResult:
         """
         Execute the retrieval pipeline.
@@ -258,7 +273,7 @@ class ReflexPipeline:
             try:
                 from neural_memory.engine.session_state import SessionManager
 
-                _session_state = SessionManager.get_instance().get(session_id)
+                _session_state = SessionManager.get_instance().get_or_create(session_id)
             except Exception:
                 logger.debug("Failed to load session state for %s", session_id, exc_info=True)
 
@@ -509,6 +524,7 @@ class ReflexPipeline:
                 anchor_sets,
                 max_hops=self._depth_to_hops(depth),
                 anchor_activations=anchor_activations,
+                warm_activations=self._warm_activations,
             )
             co_activations = []
         _phase_timings["activation"] = (time.perf_counter() - start_time) * 1000
@@ -548,6 +564,30 @@ class ReflexPipeline:
         except Exception:
             logger.debug("Gate calibration fetch failed (non-critical)", exc_info=True)
 
+        # 4.5 Goal-directed recall: compute proximity to active goals (early, shared with familiarity)
+        _goal_proximity: dict[str, float] = {}
+        if getattr(self._config, "goal_proximity_boost", 0.0) > 0:
+            try:
+                from neural_memory.engine.goal_proximity import (
+                    compute_goal_proximity,
+                    find_active_goals,
+                )
+
+                active_goals = await find_active_goals(self._storage)
+                if active_goals:
+                    goal_ids = [g.id for g in active_goals]
+                    goal_priorities = {g.id: g.goal_priority for g in active_goals}
+                    _parent_map = {g.id: g.parent_goal_id for g in active_goals}
+                    _goal_proximity = await compute_goal_proximity(
+                        self._storage,
+                        goal_ids,
+                        max_hops=getattr(self._config, "goal_max_hops", 3),
+                        goal_priorities=goal_priorities,
+                        parent_map=_parent_map,
+                    )
+            except Exception:
+                logger.debug("Goal proximity computation failed", exc_info=True)
+
         _sufficiency = check_sufficiency(
             activations=activations,
             anchor_sets=anchor_sets,
@@ -577,8 +617,19 @@ class ReflexPipeline:
                     start_time=start_time,
                     phase_timings=_phase_timings,
                     sufficiency_gate=_sufficiency.gate,
+                    goal_proximity=_goal_proximity,
+                    session_state=_session_state,
                 )
                 if _fam_result is not None:
+                    # Record surfaced fibers from familiarity path
+                    if _session_state is not None and _fam_result.fibers_matched:
+                        try:
+                            _session_state.record_surfaced(_fam_result.fibers_matched)
+                        except Exception:
+                            logger.debug(
+                                "Record surfaced fibers failed (non-critical)",
+                                exc_info=True,
+                            )
                     # Flush pending writes before returning familiarity result
                     if self._write_queue.pending_count > 0:
                         try:
@@ -676,6 +727,32 @@ class ReflexPipeline:
                 _session_topics = {t for t, w in top_topics.items() if w > 0.3}
             except Exception:
                 pass
+
+        # Preference query detection for preference-aware scoring
+        _is_preference_query = False
+        if getattr(self._config, "preference_detection_enabled", True):
+            from neural_memory.engine.preference_detector import is_preference_query
+
+            _is_preference_query = is_preference_query(query)
+
+        # Temporal query detection for event anchor boosting
+        _temporal_event_anchors: set[str] = set()
+        if getattr(self._config, "temporal_routing_enabled", True):
+            from neural_memory.engine.temporal_query import detect_temporal_query
+
+            _temporal_signal = detect_temporal_query(query)
+            if _temporal_signal is not None:
+                _temporal_event_anchors = set(_temporal_signal.event_anchors)
+
+        # Role-aware scoring: detect if query targets assistant or user content
+        _role_target: str | None = None
+        if getattr(self._config, "role_aware_scoring_enabled", True):
+            from neural_memory.engine.role_query import detect_role_target
+
+            _role_result = detect_role_target(query)
+            if _role_result is not None:
+                _role_target = _role_result.value  # "assistant" or "user"
+
         fibers_matched = await self._find_matching_fibers(
             activations,
             valid_at=valid_at,
@@ -684,8 +761,41 @@ class ReflexPipeline:
             tag_mode=tag_mode,
             session_topics=_session_topics,
             created_before=as_of,
+            goal_proximity=_goal_proximity,
+            session_state=_session_state,
+            is_preference_query=_is_preference_query,
+            temporal_event_anchors=_temporal_event_anchors,
+            role_target=_role_target,
+            ranked_lists=ranked_lists,
+            query_intent=stimulus.intent.value,
         )
         _phase_timings["fibers"] = (time.perf_counter() - start_time) * 1000
+
+        # 5.5 Causal auto-inclusion: trace CAUSED_BY/LEADS_TO from matched fibers
+        _causal_supplement = ""
+        if fibers_matched and getattr(self._config, "causal_auto_include", True):
+            try:
+                from neural_memory.engine.causal_inclusion import gather_causal_context
+
+                _fiber_neuron_ids = [list(f.neuron_ids) for f in fibers_matched[:10]]
+                _causal_max_hops = getattr(self._config, "causal_auto_include_max_hops", 2)
+                # Budget: 20% of max_tokens (approximate 4 chars/token), min 200 chars
+                _causal_budget = max(200, int(max_tokens * 0.2 * 4))
+                # Exclude neurons already in matched fibers (dedup with temporal binding)
+                _matched_nids: set[str] = set()
+                for _f in fibers_matched:
+                    _matched_nids.update(_f.neuron_ids)
+                _causal_ctx = await gather_causal_context(
+                    self._storage,
+                    _fiber_neuron_ids,
+                    max_hops=_causal_max_hops,
+                    max_tokens_budget=_causal_budget,
+                    exclude_neuron_ids=_matched_nids,
+                )
+                _causal_supplement = _causal_ctx.supplement_text
+            except Exception:
+                logger.debug("Causal auto-inclusion failed (non-critical)", exc_info=True)
+        _phase_timings["causal"] = (time.perf_counter() - start_time) * 1000
 
         # 6. Extract subgraph
         neuron_ids, synapse_ids = await self._activator.get_activated_subgraph(
@@ -717,6 +827,19 @@ class ReflexPipeline:
         _encryptor = self._get_encryptor()
         _brain_id = self._storage.brain_id or "" if _encryptor else ""
 
+        # ── Reflex injection: prepend always-on neurons before regular context ──
+        _reflex_prefix = ""
+        _reflex_count = 0
+        if not exclude_reflexes:
+            try:
+                reflex_neurons = await self._storage.find_reflex_neurons(limit=50)
+                if reflex_neurons:
+                    _reflex_count = len(reflex_neurons)
+                    _reflex_lines = [f"- {n.content}" for n in reflex_neurons]
+                    _reflex_prefix = "[Reflexes]\n" + "\n".join(_reflex_lines) + "\n\n"
+            except Exception:
+                logger.debug("Reflex injection failed (non-critical)", exc_info=True)
+
         context, tokens_used = await format_context(
             self._storage,
             activations,
@@ -725,6 +848,10 @@ class ReflexPipeline:
             encryptor=_encryptor,
             brain_id=_brain_id,
         )
+
+        if _reflex_prefix:
+            context = _reflex_prefix + context
+
         _phase_timings["reconstruction"] = (time.perf_counter() - start_time) * 1000
 
         latency_ms = (time.perf_counter() - start_time) * 1000
@@ -780,9 +907,15 @@ class ReflexPipeline:
                 "activation_levels": {
                     nid: round(ar.activation_level, 4) for nid, ar in activations.items()
                 },
+                "activation_paths": {nid: ar.path for nid, ar in activations.items() if ar.path},
                 "phase_timings_ms": _phase_timings,
+                "reflex_count": _reflex_count,
             },
         )
+
+        # Attach causal supplement to result metadata
+        if _causal_supplement:
+            result.metadata["causal_context"] = _causal_supplement
 
         # Update priming cache and metrics (non-critical)
         if session_id and _priming_result is not None:
@@ -809,6 +942,8 @@ class ReflexPipeline:
                         "hit_rate": round(_prim_metrics.hit_rate, 4),
                         "aggressiveness": round(_prim_metrics.aggressiveness_multiplier, 2),
                     }
+                    # Store full PrimingResult for proactive hint selection
+                    result.metadata["_priming_result"] = _priming_result
             except Exception:
                 logger.debug("Priming cache update failed (non-critical)", exc_info=True)
 
@@ -968,6 +1103,41 @@ class ReflexPipeline:
                         logger.debug("Session summary persist failed (non-critical)", exc_info=True)
             except Exception:
                 logger.debug("Session recording failed (non-critical)", exc_info=True)
+
+        # Record surfaced fibers in attention set (anti-redundancy for next query)
+        if fibers_matched and _session_state is not None:
+            try:
+                _session_state.record_surfaced([f.id for f in fibers_matched])
+            except Exception:
+                logger.debug("Record surfaced fibers failed (non-critical)", exc_info=True)
+
+        # Compute unified confidence score (non-critical)
+        try:
+            from neural_memory.engine.confidence import ConfidenceWeights, compute_confidence
+
+            _top_fiber = fibers_matched[0] if fibers_matched else None
+            _fiber_meta = (_top_fiber.metadata or {}) if _top_fiber else {}
+            _fidelity = str(_fiber_meta.get("_fidelity_layer", "detail"))
+            _quality = float(_fiber_meta.get("_quality_score", 5.0))
+            _is_fam = result.synthesis_method == "familiarity"
+
+            _conf_weights = ConfidenceWeights(
+                retrieval=getattr(self._config, "confidence_weight_retrieval", 0.35),
+                content_quality=getattr(self._config, "confidence_weight_quality", 0.25),
+                fidelity=getattr(self._config, "confidence_weight_fidelity", 0.20),
+                freshness=getattr(self._config, "confidence_weight_freshness", 0.20),
+            )
+            result.confidence_score = compute_confidence(
+                retrieval_score=result.confidence,
+                sufficiency_confidence=_sufficiency.confidence,
+                quality_score=_quality,
+                fidelity_layer=_fidelity,
+                created_at=_top_fiber.created_at if _top_fiber else None,
+                is_familiarity_fallback=_is_fam,
+                weights=_conf_weights,
+            )
+        except Exception:
+            logger.debug("Confidence score computation failed (non-critical)", exc_info=True)
 
         return result
 
@@ -1293,6 +1463,7 @@ class ReflexPipeline:
                 anchor_sets,
                 max_hops=self._config.max_spread_hops,
                 anchor_activations=anchor_activations,
+                warm_activations=self._warm_activations,
             )
             return activations, intersections, []
 
@@ -1310,6 +1481,7 @@ class ReflexPipeline:
             anchor_sets,
             max_hops=discovery_hops,
             anchor_activations=anchor_activations,
+            warm_activations=self._warm_activations,
         )
 
         # --- Phase 3: Merge results ---
@@ -1446,6 +1618,8 @@ class ReflexPipeline:
         start_time: float,
         phase_timings: dict[str, float],
         sufficiency_gate: str,
+        goal_proximity: dict[str, float] | None = None,
+        session_state: SessionState | None = None,
     ) -> RetrievalResult | None:
         """Familiarity-based recall — weaker signal, lower confidence.
 
@@ -1455,7 +1629,6 @@ class ReflexPipeline:
         """
         max_fibers = self._config.familiarity_max_fibers
         confidence_cap = self._config.familiarity_confidence_cap
-
         fibers_matched: list[Fiber] = []
 
         # Strategy A: We have activations but they were too weak for sufficiency.
@@ -1477,6 +1650,8 @@ class ReflexPipeline:
                     query_tokens=query_tokens,
                     tag_mode=tag_mode,
                     created_before=as_of,
+                    goal_proximity=goal_proximity,
+                    session_state=session_state,
                 )
 
         # Strategy B: No activations at all (no_anchors / empty_landscape).
@@ -1509,6 +1684,8 @@ class ReflexPipeline:
                             query_tokens=query_tokens,
                             tag_mode=tag_mode,
                             created_before=as_of,
+                            goal_proximity=goal_proximity,
+                            session_state=session_state,
                         )
                         # Update activations for subgraph extraction
                         activations = new_activations
@@ -2437,6 +2614,13 @@ class ReflexPipeline:
         tag_mode: str = "and",
         session_topics: set[str] | None = None,
         created_before: datetime | None = None,
+        goal_proximity: dict[str, float] | None = None,
+        session_state: SessionState | None = None,
+        is_preference_query: bool = False,
+        temporal_event_anchors: set[str] | None = None,
+        role_target: str | None = None,
+        ranked_lists: list[list[RankedAnchor]] | None = None,
+        query_intent: str | None = None,
     ) -> list[Fiber]:
         """Find fibers that contain activated neurons (batch query).
 
@@ -2476,7 +2660,87 @@ class ReflexPipeline:
         _recent_boost = self._config.recent_access_boost
         _recent_window_hrs = self._config.recent_access_window_days * 24.0
         _session_topics = session_topics or set()
+        _goal_proximity = goal_proximity or {}
+        _goal_proximity_boost = getattr(self._config, "goal_proximity_boost", 0.25)
+        _anti_redundancy = getattr(self._config, "anti_redundancy_penalty", 0.3)
+        _preference_boost = getattr(self._config, "preference_boost", 1.5)
+        _preference_domain_boost = getattr(self._config, "preference_domain_boost", 0.2)
+        _is_pref_query = is_preference_query
+        _event_anchors = temporal_event_anchors or set()
+        _event_anchor_boost = getattr(self._config, "temporal_event_anchor_boost", 0.3)
+        _role_target = role_target
+        _role_match_boost = getattr(self._config, "role_match_boost", 1.3)
+        _role_mismatch_penalty = getattr(self._config, "role_mismatch_penalty", 0.9)
+        _session_state = session_state
         _now = utcnow()
+
+        # --- Hybrid retrieval fusion: pre-compute per-fiber fused scores ---
+        _fusion_scores: dict[str, float] = {}
+        _fusion_enabled = getattr(self._config, "retrieval_fusion_enabled", True)
+        if _fusion_enabled and ranked_lists:
+            from neural_memory.engine.retrieval_fusion import (
+                FusionWeights,
+                fuse_scores,
+                select_weights,
+            )
+
+            # Build neuron-level scores per channel from ranked_lists
+            _semantic_neuron_scores: dict[str, float] = {}
+            _lexical_neuron_scores: dict[str, float] = {}
+            for rlist in ranked_lists:
+                for anchor in rlist:
+                    # Use raw score if available, otherwise 1/(rank) as proxy
+                    score = anchor.score if anchor.score > 0 else 1.0 / anchor.rank
+                    if anchor.retriever == "embedding":
+                        prev = _semantic_neuron_scores.get(anchor.neuron_id, 0.0)
+                        _semantic_neuron_scores[anchor.neuron_id] = max(prev, score)
+                    elif anchor.retriever in ("text_relevance", "keyword", "fuzzy"):
+                        prev = _lexical_neuron_scores.get(anchor.neuron_id, 0.0)
+                        _lexical_neuron_scores[anchor.neuron_id] = max(prev, score)
+
+            # Build per-fiber channel scores (max neuron score per fiber per channel)
+            _graph_fiber: dict[str, float] = {}
+            _semantic_fiber: dict[str, float] = {}
+            _lexical_fiber: dict[str, float] = {}
+            for fiber in fibers:
+                fid = fiber.id
+                # Graph: max activation level of fiber's neurons
+                act_levels = [
+                    activations[nid].activation_level
+                    for nid in fiber.neuron_ids
+                    if nid in activations
+                ]
+                if act_levels:
+                    _graph_fiber[fid] = max(act_levels)
+                # Semantic: max embedding score of fiber's neurons
+                sem_levels = [
+                    _semantic_neuron_scores[nid]
+                    for nid in fiber.neuron_ids
+                    if nid in _semantic_neuron_scores
+                ]
+                if sem_levels:
+                    _semantic_fiber[fid] = max(sem_levels)
+                # Lexical: max keyword/BM25 score of fiber's neurons
+                lex_levels = [
+                    _lexical_neuron_scores[nid]
+                    for nid in fiber.neuron_ids
+                    if nid in _lexical_neuron_scores
+                ]
+                if lex_levels:
+                    _lexical_fiber[fid] = max(lex_levels)
+
+            # Select weights based on query intent or config
+            _cfg_weights = dict(self._config.retrieval_fusion_weights)
+            _weights = FusionWeights(
+                graph=_cfg_weights.get("graph", 0.5),
+                semantic=_cfg_weights.get("semantic", 0.3),
+                lexical=_cfg_weights.get("lexical", 0.2),
+            )
+            if query_intent:
+                _weights = select_weights(query_intent)
+
+            fusion_results = fuse_scores(_graph_fiber, _semantic_fiber, _lexical_fiber, _weights)
+            _fusion_scores = {r.fiber_id: r.fused_score for r in fusion_results}
 
         def _fiber_score(fiber: Fiber) -> float:
             # --- Base quality: salience * recency * conductivity ---
@@ -2495,17 +2759,22 @@ class ReflexPipeline:
                 base_score *= (1.0 - fw) + fw * age_result.score
 
             # --- Activation relevance: how well does this fiber match the query? ---
-            activated = [nid for nid in fiber.neuron_ids if nid in activations]
-            if activated:
-                coverage = len(activated) / max(len(fiber.neuron_ids), 1)
-                max_act = max(activations[nid].activation_level for nid in activated)
-                mean_act = sum(activations[nid].activation_level for nid in activated) / len(
-                    activated
-                )
-                activation_signal = max_act * 0.5 + coverage * 0.3 + mean_act * 0.2
-                activation_signal = max(0.05, activation_signal)
+            # When fusion is enabled, use fused tri-modal score as activation signal
+            fused = _fusion_scores.get(fiber.id) if _fusion_scores else None
+            if fused is not None:
+                activation_signal = max(0.05, fused)
             else:
-                activation_signal = 0.05
+                activated = [nid for nid in fiber.neuron_ids if nid in activations]
+                if activated:
+                    coverage = len(activated) / max(len(fiber.neuron_ids), 1)
+                    max_act = max(activations[nid].activation_level for nid in activated)
+                    mean_act = sum(activations[nid].activation_level for nid in activated) / len(
+                        activated
+                    )
+                    activation_signal = max_act * 0.5 + coverage * 0.3 + mean_act * 0.2
+                    activation_signal = max(0.05, activation_signal)
+                else:
+                    activation_signal = 0.05
 
             # --- Stage bonus: semantic memories are more consolidated/reliable ---
             stage = getattr(fiber, "stage", None) or (fiber.metadata or {}).get("_stage")
@@ -2536,6 +2805,23 @@ class ReflexPipeline:
                         affinity = topic_overlap / max(denom, 1)
                         score += affinity * _topic_affinity_boost
 
+            # --- Goal-directed recall: proximity to active goals ---
+            # Compound with prediction error: surprise near goals amplifies boost
+            if _goal_proximity and _goal_proximity_boost > 0:
+                goal_neurons = [nid for nid in fiber.neuron_ids if nid in _goal_proximity]
+                if goal_neurons:
+                    max_prox = max(_goal_proximity[nid] for nid in goal_neurons)
+                    goal_boost = max_prox * _goal_proximity_boost
+                    _surprise = (fiber.metadata or {}).get("_surprise_bonus", 0.0)
+                    if isinstance(_surprise, (int, float)) and _surprise > 0:
+                        goal_boost *= 1.0 + float(_surprise) * 0.3
+                    score += goal_boost
+
+            # --- Anti-redundancy: penalize previously surfaced fibers ---
+            if _session_state and _anti_redundancy > 0:
+                if _session_state.is_surfaced(fiber.id):
+                    score *= _anti_redundancy
+
             # --- T1.5: Recent-access boost (multiplicative, review fix M3) ---
             if _recent_boost > 0 and fiber.last_conducted:
                 hours_since = (_now - fiber.last_conducted).total_seconds() / 3600
@@ -2552,6 +2838,45 @@ class ReflexPipeline:
             if fiber_meta.get("_stale"):
                 score *= 0.8  # -20% penalty for outdated version references
 
+            # --- Preference-aware boost: preference fibers rank higher for preference queries ---
+            if _is_pref_query and _preference_boost > 1.0:
+                if "preference" in fiber_tags:
+                    score *= _preference_boost
+                # Domain keyword overlap: additive boost for matching domains
+                if _preference_domain_boost > 0 and query_tokens:
+                    pref_domain = fiber_meta.get("_preference_domain")
+                    if isinstance(pref_domain, list) and pref_domain:
+                        domain_set = {d.lower() for d in pref_domain}
+                        domain_overlap = len(query_tokens & domain_set)
+                        if domain_overlap > 0:
+                            score += _preference_domain_boost * min(domain_overlap, 3) / 3
+
+            # --- Temporal event anchor boost: fibers mentioning query events rank higher ---
+            if _event_anchors and _event_anchor_boost > 0:
+                fiber_content_lower = (fiber.summary or "").lower()
+                if not fiber_content_lower:
+                    # Fall back to anchor neuron content via metadata
+                    fiber_content_lower = str(fiber_meta.get("_content", "")).lower()
+                anchor_hits = sum(1 for a in _event_anchors if a in fiber_content_lower)
+                if anchor_hits > 0:
+                    score += _event_anchor_boost * min(anchor_hits, 3) / 3
+
+            # --- Role-aware scoring: boost fibers matching the query's role target ---
+            if _role_target and _role_match_boost > 1.0:
+                # Check fiber's role tag (set during benchmark ingest as "role:user"/"role:assistant")
+                fiber_role = None
+                if f"role:{_role_target}" in fiber_tags:
+                    fiber_role = _role_target
+                elif "role:assistant" in fiber_tags:
+                    fiber_role = "assistant"
+                elif "role:user" in fiber_tags:
+                    fiber_role = "user"
+
+                if fiber_role == _role_target:
+                    score *= _role_match_boost
+                elif fiber_role is not None:
+                    score *= _role_mismatch_penalty
+
             # --- Column fiber boost: complete episodic traces rank higher ---
             if fiber_meta.get("_column"):
                 score *= 1.3
@@ -2566,7 +2891,14 @@ class ReflexPipeline:
                     )
 
                     enc_ctx = ContextFingerprint.from_dict(stored_fp)
+                    # Use session's top topic as project context for matching
+                    _ret_project = ""
+                    if session_state is not None:
+                        top = session_state.get_topic_weights(limit=1)
+                        if top:
+                            _ret_project = next(iter(top))
                     ret_ctx = ContextFingerprint(
+                        project_name=_ret_project,
                         dominant_topics=tuple(sorted(query_tokens)[:10]),
                     )
                     ctx_mult = context_match_score(enc_ctx, ret_ctx)
@@ -2616,13 +2948,21 @@ class ReflexPipeline:
         selected_neuron_sets: list[set[str]] = []
         selected_hashes: list[int] = []
 
+        # Stratum-aware diversity: track lifecycle stage + schema cluster counts
+        from collections import Counter as _Counter
+
+        stratum_counts: _Counter[str] = _Counter()
+        schema_counts: _Counter[str] = _Counter()
+        _stratum_cap = getattr(self._config, "stratum_diversity_cap", 0.4)
+        _target_count = 10
+
         for raw_score, fiber in scored:
-            if len(selected) >= 10:
+            if len(selected) >= _target_count:
                 break
 
             # T1.3: SimHash dedup — skip near-duplicate content
-            anchor = anchor_neurons.get(fiber.anchor_neuron_id)
-            fiber_hash = anchor.content_hash if anchor else 0
+            anchor_neuron = anchor_neurons.get(fiber.anchor_neuron_id)
+            fiber_hash = anchor_neuron.content_hash if anchor_neuron else 0
             if fiber_hash != 0 and any(
                 h != 0 and is_near_duplicate(fiber_hash, h) for h in selected_hashes
             ):
@@ -2647,9 +2987,26 @@ class ReflexPipeline:
                     if penalized_score < lowest_selected * 0.5:
                         continue
 
+            # Stratum-aware diversity: cap results per lifecycle stage
+            fiber_meta = fiber.metadata or {}
+            stratum = getattr(fiber, "stage", None) or fiber_meta.get("_stage") or "episodic"
+            max_per_stratum = max(1, int(_target_count * _stratum_cap))
+            if stratum_counts[stratum] >= max_per_stratum and len(selected) >= 3:
+                # Allow first 3 selections unconstrained, then enforce cap
+                continue
+
+            # Schema-cluster diversity: cap fibers from same schema (when enabled)
+            _schema_id = fiber_meta.get("_schema_id")
+            if _schema_id and len(selected) >= 3:
+                if schema_counts[_schema_id] >= max_per_stratum:
+                    continue
+
             selected.append(fiber)
             selected_neuron_sets.append(set(fiber.neuron_ids))
             selected_hashes.append(fiber_hash)
+            stratum_counts[stratum] += 1
+            if _schema_id:
+                schema_counts[_schema_id] += 1
 
         return selected
 

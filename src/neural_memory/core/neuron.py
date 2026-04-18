@@ -54,6 +54,108 @@ class Neuron:
     created_at: datetime = field(default_factory=utcnow)
     ephemeral: bool = False
 
+    @property
+    def reflex(self) -> bool:
+        """Whether this neuron is pinned as a reflex (always-on in recall)."""
+        return bool(self.metadata.get("_reflex", False))
+
+    def with_reflex(self, pinned: bool = True) -> Neuron:
+        """Create a new Neuron with the reflex flag set.
+
+        Args:
+            pinned: Whether to pin (True) or unpin (False) the neuron.
+
+        Returns:
+            New Neuron with updated reflex flag in metadata.
+        """
+        return self.with_metadata(_reflex=pinned)
+
+    @property
+    def abstraction_level(self) -> int:
+        """Abstraction level (0=unassigned, 1=concrete, 2=abstract, 3=meta)."""
+        return int(self.metadata.get("_abstraction_level", 0))
+
+    def with_abstraction_level(self, level: int) -> Neuron:
+        """Create a new Neuron with the given abstraction level.
+
+        Args:
+            level: Abstraction level (0=unassigned, 1=concrete, 2=abstract, 3=meta)
+
+        Returns:
+            New Neuron with updated abstraction level in metadata
+        """
+        return self.with_metadata(_abstraction_level=level)
+
+    @property
+    def grounded(self) -> bool:
+        """Whether this neuron is a grounded truth (resists decay and conflicts)."""
+        return bool(self.metadata.get("_grounded", False))
+
+    @property
+    def confidence(self) -> float:
+        """Confidence level (0.0-1.0). Grounded neurons default to 1.0."""
+        return float(self.metadata.get("_confidence", 0.5))
+
+    # -- Goal neuron properties (metadata-backed, zero migration) --
+
+    @property
+    def goal_state(self) -> str | None:
+        """Goal state: 'active', 'paused', or 'completed'. None if not a goal."""
+        return self.metadata.get("_goal_state")
+
+    @property
+    def goal_priority(self) -> int:
+        """Goal priority (1-10, default 5)."""
+        return int(self.metadata.get("_goal_priority", 5))
+
+    @property
+    def goal_keywords(self) -> list[str]:
+        """Keywords extracted from goal for EMA seeding."""
+        kw = self.metadata.get("_goal_keywords")
+        return list(kw) if isinstance(kw, (list, tuple)) else []
+
+    @property
+    def is_active_goal(self) -> bool:
+        """Whether this neuron is an active goal."""
+        return self.goal_state == "active"
+
+    @property
+    def parent_goal_id(self) -> str | None:
+        """ID of the parent goal (via SUBGOAL_OF synapse). Cached in metadata."""
+        return self.metadata.get("_parent_goal_id")
+
+    def with_goal_state(
+        self,
+        state: str,
+        priority: int = 5,
+        keywords: list[str] | None = None,
+        parent_goal_id: str | None = None,
+    ) -> Neuron:
+        """Create a new Neuron with updated goal state.
+
+        Args:
+            state: Goal state ('active', 'paused', 'completed')
+            priority: Goal priority 1-10
+            keywords: Keywords for EMA seeding
+            parent_goal_id: Optional parent goal ID for hierarchy
+
+        Returns:
+            New Neuron with goal metadata
+        """
+        _valid_states = ("active", "paused", "completed")
+        if state not in _valid_states:
+            msg = f"Invalid goal state '{state}', must be one of {_valid_states}"
+            raise ValueError(msg)
+        updates: dict[str, Any] = {
+            "_goal_state": state,
+            "_goal_priority": max(1, min(10, priority)),
+        }
+        if keywords is not None:
+            updates["_goal_keywords"] = keywords
+        if parent_goal_id is not None:
+            updates["_parent_goal_id"] = parent_goal_id
+        return self.with_metadata(**updates)
+
     @classmethod
     def create(
         cls,
@@ -63,6 +165,8 @@ class Neuron:
         neuron_id: str | None = None,
         content_hash: int = 0,
         ephemeral: bool = False,
+        grounded: bool = False,
+        confidence: float | None = None,
     ) -> Neuron:
         """
         Factory method to create a new Neuron.
@@ -78,11 +182,17 @@ class Neuron:
         Returns:
             A new Neuron instance
         """
+        final_metadata = dict(metadata) if metadata else {}
+        if grounded:
+            final_metadata["_grounded"] = True
+            final_metadata["_confidence"] = 1.0 if confidence is None else confidence
+        elif confidence is not None:
+            final_metadata["_confidence"] = confidence
         return cls(
             id=neuron_id or str(uuid4()),
             type=type,
             content=content,
-            metadata=metadata or {},
+            metadata=final_metadata,
             content_hash=content_hash,
             created_at=utcnow(),
             ephemeral=ephemeral,
@@ -107,6 +217,25 @@ class Neuron:
             created_at=self.created_at,
             ephemeral=self.ephemeral,
         )
+
+    def with_grounded(self, grounded: bool = True, confidence: float = 1.0) -> Neuron:
+        """Create a new Neuron with updated grounding status."""
+        updates: dict[str, Any] = {"_grounded": grounded, "_confidence": confidence}
+        if not grounded:
+            # Remove grounding keys when ungrounding
+            new_meta = {
+                k: v for k, v in self.metadata.items() if k not in ("_grounded", "_confidence")
+            }
+            return Neuron(
+                id=self.id,
+                type=self.type,
+                content=self.content,
+                metadata=new_meta,
+                content_hash=self.content_hash,
+                created_at=self.created_at,
+                ephemeral=self.ephemeral,
+            )
+        return self.with_metadata(**updates)
 
 
 @dataclass(frozen=True)

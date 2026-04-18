@@ -302,3 +302,40 @@ async def _get_fiber_info(
 
     fiber = fibers[0]
     return fiber.id, fiber.time_start
+
+
+async def query_temporal_neighborhood(
+    storage: NeuralStorage,
+    fiber_id: str,
+    window_hours: float = 24.0,
+    limit: int = 10,
+) -> list[Fiber]:
+    """Find fibers temporally adjacent to a given fiber.
+
+    Looks up the target fiber's time_start, then queries a window of
+    ±window_hours around it. Excludes the target fiber itself.
+
+    Args:
+        storage: Storage backend (brain context must be set)
+        fiber_id: The anchor fiber ID
+        window_hours: Hours before and after to search (default 24)
+        limit: Maximum neighbors to return (default 10)
+
+    Returns:
+        List of nearby Fiber objects sorted chronologically
+    """
+    from datetime import timedelta
+
+    target = await storage.get_fiber(fiber_id)
+    if target is None or target.time_start is None:
+        return []
+
+    window = timedelta(hours=window_hours)
+    start = target.time_start - window
+    end_time = target.time_end if target.time_end is not None else target.time_start
+    end = end_time + window
+
+    neighbors = await query_temporal_range(storage, start, end, limit=limit + 1)
+
+    # Exclude the target fiber itself
+    return [f for f in neighbors if f.id != fiber_id][:limit]

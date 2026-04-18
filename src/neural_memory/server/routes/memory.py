@@ -68,7 +68,14 @@ async def encode_memory(
             "Remove secrets before storing.",
         )
 
-    encoder = MemoryEncoder(storage, brain.config)
+    # SimHash dedup always runs (pure Python, zero cost).
+    # Full dedup (embedding + LLM) only when [dedup] enabled = true.
+    from neural_memory.engine.dedup import build_dedup_pipeline
+    from neural_memory.unified_config import get_config
+
+    dedup_pipeline = build_dedup_pipeline(get_config().dedup, storage)
+
+    encoder = MemoryEncoder(storage, brain.config, dedup_pipeline=dedup_pipeline)
 
     tags = set(request.tags) if request.tags else None
 
@@ -200,6 +207,8 @@ async def query_memory(
                     )
 
             if fibers_for_budget:
+                # Extract query terms for context compiler (dedup/rescore step).
+                _budget_query_terms: list[str] = [w for w in request.query.split() if len(w) > 2]
                 budgeted_ctx, _, allocation = await format_context_budgeted(
                     storage=storage,
                     activations=activations_for_budget,
@@ -207,6 +216,7 @@ async def query_memory(
                     max_tokens=min(request.recall_token_budget, 100_000),
                     budget_config=budget_cfg,
                     clean_for_prompt=request.clean_for_prompt,
+                    query_terms=_budget_query_terms,
                 )
                 context = budgeted_ctx
                 extra_metadata["budget"] = format_budget_report(allocation)

@@ -220,8 +220,8 @@ class TestPromotion:
     async def test_does_not_promote_below_threshold(
         self, storage: SQLiteStorage, tier_config: TierConfig
     ) -> None:
-        """WARM memories below promote_threshold stay WARM."""
-        await _create_memory(storage, "f1", access_frequency=2, last_activated_days_ago=1)
+        """WARM memories below composite score threshold stay WARM."""
+        await _create_memory(storage, "f1", access_frequency=0, last_activated_days_ago=60)
         engine = TierEngine(storage, tier_config)
         report = await engine.evaluate(storage.brain_id)
 

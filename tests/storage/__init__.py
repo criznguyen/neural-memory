@@ -1,1 +1,1 @@
-"""FalkorDB storage backend tests."""
+"""Storage backend tests."""

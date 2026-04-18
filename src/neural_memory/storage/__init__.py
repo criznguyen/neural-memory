@@ -29,10 +29,6 @@ __all__ = [
 
 # Lazy imports for optional backends (avoid requiring packages for SQLite users)
 def __getattr__(name: str):  # type: ignore[no-untyped-def]
-    if name == "FalkorDBStorage":
-        from neural_memory.storage.falkordb.falkordb_store import FalkorDBStorage
-
-        return FalkorDBStorage
     if name == "PostgreSQLStorage":
         from neural_memory.storage.postgres.postgres_store import PostgreSQLStorage
 

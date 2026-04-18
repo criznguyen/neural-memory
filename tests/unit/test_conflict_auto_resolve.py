@@ -11,7 +11,7 @@ from neural_memory.engine.conflict_auto_resolve import (
     _count_superseded,
     try_auto_resolve,
 )
-from neural_memory.engine.conflict_detection import Conflict, ConflictType
+from neural_memory.engine.conflict_detection import Conflict, ConflictType, TemporalClassification
 from neural_memory.utils.timeutils import utcnow
 
 
@@ -38,6 +38,7 @@ def _make_neuron(
     neuron.created_at = created_at or utcnow()
     neuron.content = "We use PostgreSQL"
     neuron.metadata = metadata or {}
+    neuron.grounded = False  # Default: not grounded (avoids Rule 0 auto-resolve)
     return neuron
 
 
@@ -173,3 +174,51 @@ class TestCountSuperseded:
 
     def test_dispute_count_overrides(self) -> None:
         assert _count_superseded({"_dispute_count": 5}) == 5
+
+
+class TestTemporalSupersessionAutoResolve:
+    """Tests for temporal supersession auto-resolution rule."""
+
+    @pytest.mark.asyncio
+    async def test_superseded_conflict_auto_resolves_keep_new(self) -> None:
+        """SUPERSEDED temporal classification should auto-resolve as keep_new."""
+        neuron = _make_neuron()
+        storage = _make_storage(neuron=neuron)
+
+        conflict = Conflict(
+            type=ConflictType.FACTUAL_CONTRADICTION,
+            existing_neuron_id="existing-id-1234",
+            existing_content="We use PostgreSQL",
+            new_content="We use MySQL",
+            confidence=0.8,
+            temporal_classification=TemporalClassification.SUPERSEDED,
+        )
+        result = await try_auto_resolve(conflict, storage, new_confidence=0.5)
+
+        assert result.auto_resolved is True
+        assert result.resolution == "keep_new"
+        assert "supersession" in result.reason.lower()
+
+    @pytest.mark.asyncio
+    async def test_true_contradiction_not_auto_superseded(self) -> None:
+        """TRUE_CONTRADICTION should NOT trigger temporal auto-resolve."""
+        recent_time = utcnow() - timedelta(days=15)
+        neuron = _make_neuron(created_at=recent_time)
+        storage = _make_storage(neuron=neuron)
+
+        state = MagicMock()
+        state.activation_level = 0.3
+        storage.get_neuron_state = AsyncMock(return_value=state)
+
+        conflict = Conflict(
+            type=ConflictType.FACTUAL_CONTRADICTION,
+            existing_neuron_id="existing-id-1234",
+            existing_content="We use PostgreSQL",
+            new_content="We use MySQL",
+            confidence=0.5,
+            temporal_classification=TemporalClassification.TRUE_CONTRADICTION,
+        )
+        result = await try_auto_resolve(conflict, storage, new_confidence=0.5)
+
+        # Should not auto-resolve (no rule matches for medium gap, medium confidence)
+        assert result.auto_resolved is False

@@ -153,7 +153,13 @@ class EternalHandler:
         context_text = await ctx.get_injection(level=1)
         if result.context:
             context_text += f"\n\n## Topic: {topic}\n{result.context}"
-        return {
+
+        # Layered recall: include global brain preferences/instructions
+        global_section = await self._get_global_recap_context(topic)
+        if global_section:
+            context_text += f"\n\n{global_section}"
+
+        response: dict[str, Any] = {
             "context": context_text,
             "topic": topic,
             "confidence": result.confidence,
@@ -161,10 +167,27 @@ class EternalHandler:
             "message": f"Recap for topic: {topic}",
         }
 
+        # Proactive hints from priming data
+        if self.config.proactive.enabled:
+            try:
+                hints = await self._get_recap_proactive_hints(result, storage)
+                if hints:
+                    response["proactive_hints"] = hints
+            except Exception:
+                logger.debug("Proactive hints in recap failed (non-critical)", exc_info=True)
+
+        return response
+
     async def _recap_level(self, ctx: EternalContext, level: int) -> dict[str, Any]:
         """Recap at a specific detail level (1-3)."""
         level = max(1, min(3, level))
         context_text = await ctx.get_injection(level=level)
+
+        # Layered recall: include global preferences/instructions in recap
+        global_section = await self._get_global_recap_context()
+        if global_section:
+            context_text += f"\n\n{global_section}"
+
         token_est = int(len(context_text.split()) * 1.3)
 
         has_feature = False
@@ -174,12 +197,23 @@ class EternalHandler:
         except Exception:
             logger.debug("Failed to check session for welcome message", exc_info=True)
 
-        return {
+        response: dict[str, Any] = {
             "context": context_text,
             "level": level,
             "tokens_used": token_est,
             "message": f"Level {level} recap loaded." + (" Welcome back!" if has_feature else ""),
         }
+
+        # Proactive: predict topics from habit patterns at session start
+        if self.config.proactive.enabled:
+            try:
+                predictions = await self._get_session_predictions()
+                if predictions:
+                    response["predicted_topics"] = predictions
+            except Exception:
+                logger.debug("Session predictions failed (non-critical)", exc_info=True)
+
+        return response
 
     def _fire_eternal_trigger(self, text: str) -> None:
         """Fire-and-forget: check auto-save triggers.
@@ -204,3 +238,106 @@ class EternalHandler:
             )
         except Exception:
             logger.debug("Eternal trigger check failed", exc_info=True)
+
+    async def _get_recap_proactive_hints(
+        self,
+        result: Any,
+        storage: Any,
+    ) -> list[dict[str, Any]] | None:
+        """Extract proactive hints from priming data in recap result."""
+        from neural_memory.engine.proactive import (
+            format_hints_for_response,
+            select_proactive_hints,
+        )
+
+        metadata = getattr(result, "metadata", None) or {}
+        priming_result = metadata.get("_priming_result")
+        if priming_result is None:
+            return None
+
+        hints = await select_proactive_hints(
+            priming_result=priming_result,
+            storage=storage,
+            max_hints=self.config.proactive.max_hints,
+            max_chars=self.config.proactive.max_hint_chars,
+            min_activation=self.config.proactive.min_activation,
+        )
+        if not hints:
+            return None
+        return format_hints_for_response(hints)
+
+    async def _get_session_predictions(self) -> list[str] | None:
+        """Predict topics for session start using habit patterns.
+
+        Uses BEFORE synapses (topic co-occurrence) to suggest what
+        the user might work on, based on historical query patterns.
+        Returns topic names or None if insufficient data.
+        """
+        from neural_memory.engine.session_state import SessionManager
+
+        # Use same session_id format as recall_handler (mcp-{id})
+        session_id = f"mcp-{id(self)}"
+        session_state = SessionManager.get_instance().get(session_id)
+
+        if session_state is None or session_state.query_count < 3:
+            return None
+
+        storage = await self.get_storage()
+
+        from neural_memory.engine.priming import prime_from_habits
+
+        habit_boosts = await prime_from_habits(storage, session_state)
+        if not habit_boosts:
+            return None
+
+        # Get the top predicted neuron contents
+        predictions: list[str] = []
+        sorted_boosts = sorted(habit_boosts.items(), key=lambda x: x[1], reverse=True)
+        for nid, _level in sorted_boosts[:3]:
+            try:
+                neuron = await storage.get_neuron(nid)
+                if neuron and neuron.content:
+                    content = neuron.content[:100]
+                    if content not in predictions:
+                        predictions.append(content)
+            except Exception:
+                continue
+
+        return predictions if predictions else None
+
+    async def _get_global_recap_context(self, topic: str | None = None) -> str | None:
+        """Fetch global brain preferences/instructions for recap context.
+
+        Queries the _global brain for cross-project preferences and instructions,
+        returning a formatted section to append to recap context.
+
+        Args:
+            topic: Optional topic to focus the global query on.
+
+        Returns:
+            Formatted string with global preferences, or None if no global brain
+            or no relevant global memories found.
+        """
+        try:
+            from neural_memory.engine.cross_brain import _query_single_brain
+            from neural_memory.unified_config import GLOBAL_BRAIN_NAME
+
+            global_db = self.config.get_brain_db_path(GLOBAL_BRAIN_NAME)
+            if not global_db.exists():
+                return None
+
+            query = topic or "preferences instructions workflow"
+            _, _, _, context = await _query_single_brain(
+                db_path=global_db,
+                brain_name=GLOBAL_BRAIN_NAME,
+                query=query,
+                depth=DepthLevel(1),
+                max_tokens=200,
+            )
+            if not context:
+                return None
+
+            return f"## [global] Cross-project preferences\n{context}"
+        except Exception:
+            logger.debug("Global recap context failed (non-critical)", exc_info=True)
+            return None

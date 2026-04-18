@@ -20,16 +20,12 @@ class Config:
     debug: bool = False
 
     # Storage settings
-    storage_backend: str = "memory"  # memory, sqlite, falkordb
+    storage_backend: str = "memory"  # memory, sqlite, postgres, infinitydb
     sqlite_path: str | None = None
-    falkordb_host: str = "localhost"
-    falkordb_port: int = 6379
-    falkordb_username: str | None = None
-    falkordb_password: str | None = None
 
     # Brain defaults
     default_decay_rate: float = 0.1
-    default_activation_threshold: float = 0.2
+    default_activation_threshold: float = 0.3
     default_max_spread_hops: int = 4
     default_max_context_tokens: int = 1500
 
@@ -45,6 +41,9 @@ class Config:
     # Trusted networks (CIDR notation, e.g. "172.16.0.0/12,192.168.0.0/16")
     # Allows non-localhost requests from these networks (for Docker/container deployments)
     trusted_networks: list[str] = field(default_factory=list)
+
+    # Brain access control (opt-in, default off for single-user mode)
+    enforce_brain_acl: bool = False
 
     @classmethod
     def from_env(cls) -> Config:
@@ -86,12 +85,8 @@ class Config:
             debug=get_bool("NEURAL_MEMORY_DEBUG", False),
             storage_backend=os.getenv("NEURAL_MEMORY_STORAGE", "memory"),
             sqlite_path=os.getenv("NEURAL_MEMORY_SQLITE_PATH"),
-            falkordb_host=os.getenv("NEURAL_MEMORY_FALKORDB_HOST", "localhost"),
-            falkordb_port=get_int("NEURAL_MEMORY_FALKORDB_PORT", 6379),
-            falkordb_username=os.getenv("NEURAL_MEMORY_FALKORDB_USERNAME"),
-            falkordb_password=os.getenv("NEURAL_MEMORY_FALKORDB_PASSWORD"),
             default_decay_rate=get_float("NEURAL_MEMORY_DECAY_RATE", 0.1),
-            default_activation_threshold=get_float("NEURAL_MEMORY_ACTIVATION_THRESHOLD", 0.2),
+            default_activation_threshold=get_float("NEURAL_MEMORY_ACTIVATION_THRESHOLD", 0.3),
             default_max_spread_hops=get_int("NEURAL_MEMORY_MAX_SPREAD_HOPS", 4),
             default_max_context_tokens=get_int("NEURAL_MEMORY_MAX_CONTEXT_TOKENS", 1500),
             cors_origins=get_list(
@@ -102,6 +97,7 @@ class Config:
                 "NEURAL_MEMORY_TRUSTED_NETWORKS",
                 [],
             ),
+            enforce_brain_acl=get_bool("NEURAL_MEMORY_ENFORCE_ACL", False),
         )
 
 

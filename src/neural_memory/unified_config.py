@@ -40,6 +40,9 @@ _SYNC_ID_MAX_LEN = 128
 _TOML_SAFE_STRING = re.compile(r"^[a-zA-Z0-9_\-\./ ]*$")
 _TOML_STR_MAX_LEN = 128
 
+# Global brain: cross-project preferences/instructions stored here
+GLOBAL_BRAIN_NAME = "_global"
+
 
 def get_neuralmemory_dir() -> Path:
     """Get NeuralMemory data directory.
@@ -107,6 +110,54 @@ class AutoConfig:
 
 
 @dataclass(frozen=True)
+class ProactiveConfig:
+    """Proactive memory hints configuration.
+
+    Controls auto-injection of primed memories into tool responses.
+    When enabled, recall/recap/context responses include proactive_hints
+    with related memories the agent didn't explicitly ask for.
+    """
+
+    enabled: bool = True
+    max_hints: int = 3
+    max_hint_chars: int = 500
+    min_activation: float = 0.3
+    skip_high_confidence: float = 0.9
+    # Significance weighting (amygdala boost)
+    significance_enabled: bool = True
+    correction_boost: float = 2.0
+    contradiction_boost: float = 2.5
+    novelty_boost: float = 1.5
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "max_hints": self.max_hints,
+            "max_hint_chars": self.max_hint_chars,
+            "min_activation": self.min_activation,
+            "skip_high_confidence": self.skip_high_confidence,
+            "significance_enabled": self.significance_enabled,
+            "correction_boost": self.correction_boost,
+            "contradiction_boost": self.contradiction_boost,
+            "novelty_boost": self.novelty_boost,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ProactiveConfig:
+        return cls(
+            enabled=data.get("enabled", True),
+            max_hints=data.get("max_hints", 3),
+            max_hint_chars=data.get("max_hint_chars", 500),
+            min_activation=data.get("min_activation", 0.3),
+            skip_high_confidence=data.get("skip_high_confidence", 0.9),
+            significance_enabled=data.get("significance_enabled", True),
+            correction_boost=data.get("correction_boost", 2.0),
+            contradiction_boost=data.get("contradiction_boost", 2.5),
+            novelty_boost=data.get("novelty_boost", 1.5),
+        )
+
+
+@dataclass(frozen=True)
 class EmbeddingSettings:
     """Settings for embedding-based cross-language recall."""
 
@@ -161,10 +212,10 @@ class BrainSettings:
 
     decay_rate: float = 0.1
     reinforcement_delta: float = 0.05
-    activation_threshold: float = 0.2
+    activation_threshold: float = 0.3
     max_spread_hops: int = 4
     max_context_tokens: int = 1500
-    freshness_weight: float = 0.0
+    freshness_weight: float = 0.15
     simhash_prefilter_threshold: int = 0  # 0=disabled, 1-64=Hamming distance cutoff
 
     def to_dict(self) -> dict[str, Any]:
@@ -183,10 +234,10 @@ class BrainSettings:
         return cls(
             decay_rate=data.get("decay_rate", 0.1),
             reinforcement_delta=data.get("reinforcement_delta", 0.05),
-            activation_threshold=data.get("activation_threshold", 0.2),
+            activation_threshold=data.get("activation_threshold", 0.3),
             max_spread_hops=data.get("max_spread_hops", 4),
             max_context_tokens=data.get("max_context_tokens", 1500),
-            freshness_weight=data.get("freshness_weight", 0.0),
+            freshness_weight=data.get("freshness_weight", 0.15),
             simhash_prefilter_threshold=int(data.get("simhash_prefilter_threshold", 0)),
         )
 
@@ -730,7 +781,7 @@ def _sanitize_sync_id(value: str) -> str:
     return cleaned
 
 
-_VALID_STORAGE_BACKENDS = {"sqlite", "falkordb", "postgres", "infinitydb"}
+_VALID_STORAGE_BACKENDS = {"sqlite", "postgres", "infinitydb"}
 
 
 def _validate_storage_backend(value: str) -> str:
@@ -739,51 +790,6 @@ def _validate_storage_backend(value: str) -> str:
         return value
     logger.warning("Unknown storage_backend '%s', falling back to 'sqlite'", value)
     return "sqlite"
-
-
-@dataclass(frozen=True)
-class FalkorDBConfig:
-    """FalkorDB graph storage backend configuration."""
-
-    host: str = "localhost"
-    port: int = 6379
-    username: str = ""
-    password: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "host": self.host,
-            "port": self.port,
-            "username": self.username,
-            "password": "***" if self.password else "",
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> FalkorDBConfig:
-        host = str(os.environ.get("NEURAL_MEMORY_FALKORDB_HOST") or data.get("host", "localhost"))[
-            :256
-        ]
-        try:
-            port_raw = os.environ.get("NEURAL_MEMORY_FALKORDB_PORT") or data.get("port", 6379)
-            port = max(1, min(int(port_raw), 65535))
-        except (ValueError, TypeError):
-            port = 6379
-        username = str(
-            os.environ.get("NEURAL_MEMORY_FALKORDB_USERNAME") or data.get("username", "")
-        )[:128]
-        password_env = os.environ.get("NEURAL_MEMORY_FALKORDB_PASSWORD")
-        password_file = data.get("password", "")
-        if not password_env and password_file:
-            logger.warning(
-                "FalkorDB password read from config.toml — prefer NEURAL_MEMORY_FALKORDB_PASSWORD env var"
-            )
-        password = str(password_env or password_file)[:256]
-        return cls(
-            host=host,
-            port=port,
-            username=username,
-            password=password,
-        )
 
 
 @dataclass(frozen=True)
@@ -1264,7 +1270,7 @@ class UnifiedConfig:
     # Multi-device sync settings
     sync: SyncConfig = field(default_factory=SyncConfig)
 
-    # Storage backend: "sqlite" (default) or "falkordb"
+    # Storage backend: "sqlite" (default), "postgres", or "infinitydb"
     storage_backend: str = "sqlite"
 
     # Tool memory auto-capture
@@ -1285,11 +1291,11 @@ class UnifiedConfig:
     # File watcher auto-ingestion
     watcher: WatcherConfig = field(default_factory=WatcherConfig)
 
-    # FalkorDB config (used when storage_backend == "falkordb")
-    falkordb: FalkorDBConfig = field(default_factory=FalkorDBConfig)
-
     # PostgreSQL config (used when storage_backend == "postgres")
     postgres: PostgresConfig = field(default_factory=PostgresConfig)
+
+    # Proactive memory hints
+    proactive: ProactiveConfig = field(default_factory=ProactiveConfig)
 
     # MCP response compaction
     response: ResponseConfig = field(default_factory=ResponseConfig)
@@ -1391,8 +1397,8 @@ class UnifiedConfig:
             storage_backend=_validate_storage_backend(
                 str(data.get("storage_backend") or sync_data.get("storage_backend") or "sqlite")
             ),
-            falkordb=FalkorDBConfig.from_dict(data.get("falkordb", {})),
             postgres=PostgresConfig.from_dict(data.get("postgres", {})),
+            proactive=ProactiveConfig.from_dict(data.get("proactive", {})),
             response=ResponseConfig.from_dict(data.get("response", {})),
             budget=BudgetRetrievalConfig.from_dict(data.get("budget", {})),
             json_output=data.get("cli", {}).get("json_output", False),
@@ -1550,14 +1556,6 @@ class UnifiedConfig:
             f"sync_interval_seconds = {self.sync.sync_interval_seconds}",
             f'conflict_strategy = "{self.sync.conflict_strategy}"',
             "",
-            '# FalkorDB settings (when storage_backend = "falkordb")',
-            "[falkordb]",
-            f'host = "{_sanitize_toml_str(self.falkordb.host)}"',
-            f"port = {self.falkordb.port}",
-            f'username = "{_sanitize_toml_str(self.falkordb.username)}"',
-            "# Password omitted for security — use env NEURAL_MEMORY_FALKORDB_PASSWORD",
-            'password = ""',
-            "",
             '# PostgreSQL settings (when storage_backend = "postgres")',
             "[postgres]",
             f'host = "{_sanitize_toml_str(self.postgres.host)}"',
@@ -1608,6 +1606,18 @@ class UnifiedConfig:
             f"max_watched_dirs = {self.watcher.max_watched_dirs}",
             f'memory_type = "{_sanitize_toml_str(self.watcher.memory_type)}"',
             f'domain_tag = "{_sanitize_toml_str(self.watcher.domain_tag)}"',
+            "",
+            "# Proactive memory hints",
+            "[proactive]",
+            f"enabled = {'true' if self.proactive.enabled else 'false'}",
+            f"max_hints = {self.proactive.max_hints}",
+            f"max_hint_chars = {self.proactive.max_hint_chars}",
+            f"min_activation = {self.proactive.min_activation}",
+            f"skip_high_confidence = {self.proactive.skip_high_confidence}",
+            f"significance_enabled = {'true' if self.proactive.significance_enabled else 'false'}",
+            f"correction_boost = {self.proactive.correction_boost}",
+            f"contradiction_boost = {self.proactive.contradiction_boost}",
+            f"novelty_boost = {self.proactive.novelty_boost}",
             "",
             "# MCP tool tier (minimal/standard/full)",
             "[tool_tier]",
@@ -1674,15 +1684,51 @@ class UnifiedConfig:
             raise ValueError("Invalid brain name: path traversal detected")
         return db_path
 
-    def list_brains(self) -> list[str]:
-        """List available brains (SQLite .db files + InfinityDB directories)."""
+    def list_brains(self, include_global: bool = False) -> list[str]:
+        """List available brains (SQLite .db files + InfinityDB directories).
+
+        Args:
+            include_global: If True, include the hidden _global brain.
+                Defaults to False to keep brain list clean.
+        """
         if not self.brains_dir.exists():
             return []
         # SQLite: brains/*.db
         db_brains = {p.stem for p in self.brains_dir.glob("*.db")}
         # InfinityDB: brains/<name>/brain.inf
         inf_brains = {p.parent.name for p in self.brains_dir.glob("*/brain.inf")}
-        return sorted(db_brains | inf_brains)
+        all_brains = db_brains | inf_brains
+        if not include_global:
+            all_brains.discard(GLOBAL_BRAIN_NAME)
+        return sorted(all_brains)
+
+    def has_global_brain(self) -> bool:
+        """Check if the global brain exists."""
+        return self.get_brain_db_path(GLOBAL_BRAIN_NAME).exists()
+
+    async def ensure_global_brain(self) -> None:
+        """Create the global brain if it doesn't exist.
+
+        The global brain stores cross-project knowledge (preferences,
+        instructions) that should persist across all projects.
+        """
+        if self.has_global_brain():
+            return
+
+        from neural_memory.storage.sqlite_store import SQLiteStorage
+
+        db_path = self.get_brain_db_path(GLOBAL_BRAIN_NAME)
+        storage = SQLiteStorage(db_path)
+        try:
+            await storage.initialize()
+
+            from neural_memory.core.brain import Brain, BrainConfig
+
+            brain = Brain.create(name=GLOBAL_BRAIN_NAME, config=BrainConfig())
+            await storage.save_brain(brain)
+            logger.info("Created global brain at %s", db_path)
+        finally:
+            await storage.close()
 
     def switch_brain(self, brain_name: str) -> None:
         """Switch to a different brain and save config."""
@@ -1690,6 +1736,11 @@ class UnifiedConfig:
             raise ValueError(
                 "Invalid brain name: must contain only "
                 "alphanumeric characters, hyphens, underscores, or dots"
+            )
+        if brain_name == GLOBAL_BRAIN_NAME:
+            raise ValueError(
+                f"Cannot switch to reserved brain '{GLOBAL_BRAIN_NAME}'. "
+                "The global brain is managed automatically for cross-project memories."
             )
         self.current_brain = brain_name
         self.save()
@@ -1859,7 +1910,7 @@ async def get_shared_storage(brain_name: str | None = None) -> NeuralStorage:
     across CLI, MCP, and other tools. Storage instances are cached
     to avoid connection leaks.
 
-    Respects config.storage_backend: "sqlite" (default) or "falkordb".
+    Respects config.storage_backend: "sqlite" (default), "postgres", or "infinitydb".
 
     Args:
         brain_name: Brain name, or use config's current_brain if None
@@ -1896,10 +1947,6 @@ async def get_shared_storage(brain_name: str | None = None) -> NeuralStorage:
     # InfinityDB backend (Pro plugin)
     if config.storage_backend == "infinitydb":
         return await _get_infinitydb_storage(config, name)
-
-    # FalkorDB backend
-    if config.storage_backend == "falkordb":
-        return await _get_falkordb_storage(config, name)
 
     # PostgreSQL backend
     if config.storage_backend == "postgres":
@@ -1979,10 +2026,6 @@ async def _get_sqlite_storage(
         return storage
 
 
-# Cached FalkorDB storage (single connection, multi-graph)
-_falkordb_storage: NeuralStorage | None = None
-
-
 async def _get_infinitydb_storage(config: UnifiedConfig, name: str) -> NeuralStorage:
     """Create or return cached InfinityDB storage (direct import).
 
@@ -2045,61 +2088,6 @@ async def _get_infinitydb_storage(config: UnifiedConfig, name: str) -> NeuralSto
         _storage_cache[cache_key] = result
         logger.info("InfinityDB storage initialized for brain '%s'", name)
         return result
-
-
-async def _get_falkordb_storage(config: UnifiedConfig, name: str) -> NeuralStorage:
-    """Create or return cached FalkorDBStorage."""
-    global _falkordb_storage
-
-    from neural_memory.core.brain import Brain
-    from neural_memory.storage.falkordb.falkordb_store import FalkorDBStorage
-
-    if _falkordb_storage is not None:
-        # Verify connection is still alive with a PING
-        db = getattr(_falkordb_storage, "_db", None)
-        if db is not None:
-            try:
-                await db.connection.ping()
-                _falkordb_storage.set_brain(name)
-                return _falkordb_storage
-            except Exception:
-                logger.warning("FalkorDB connection lost, reconnecting")
-        _falkordb_storage = None
-
-    fdb_config = config.falkordb
-    storage = FalkorDBStorage(
-        host=fdb_config.host,
-        port=fdb_config.port,
-        username=fdb_config.username or None,
-        password=fdb_config.password or None,
-    )
-    await storage.initialize()
-
-    # Ensure brain exists and set context
-    await storage.set_brain_with_indexes(name)
-    # Try by id first, then fallback to name lookup (older brains may use UUID ids)
-    brain = await storage.get_brain(name)
-    if brain is None:
-        brain = await storage.find_brain_by_name(name)
-
-    if brain is None:
-        from neural_memory.core.brain import BrainConfig
-
-        brain_config = BrainConfig(
-            decay_rate=config.brain.decay_rate,
-            reinforcement_delta=config.brain.reinforcement_delta,
-            activation_threshold=config.brain.activation_threshold,
-            max_spread_hops=config.brain.max_spread_hops,
-            max_context_tokens=config.brain.max_context_tokens,
-            freshness_weight=config.brain.freshness_weight,
-            simhash_prefilter_threshold=config.brain.simhash_prefilter_threshold,
-        )
-        brain = Brain.create(name=name, config=brain_config, brain_id=name)
-        await storage.save_brain(brain)
-
-    storage.set_brain(brain.id)
-    _falkordb_storage = storage
-    return storage
 
 
 # Cached PostgreSQL storage (single pool, multi-brain)

@@ -63,7 +63,17 @@ def _parse_json_field(value: Any) -> Any:
     return value
 
 
-def row_to_neuron(row: Any, dialect: Any = None) -> Neuron:
+def row_to_neuron(dialect_or_row: Any, row_or_dialect: Any = None) -> Neuron:
+    # Support both (dialect, row) and (row, dialect) call signatures.
+    # Detect by checking if first arg is subscriptable with string keys.
+    if row_or_dialect is None:
+        row = dialect_or_row
+    elif hasattr(dialect_or_row, "name"):
+        # dialect_or_row is a Dialect — (dialect, row) order
+        row = row_or_dialect
+    else:
+        # (row, dialect) order
+        row = dialect_or_row
     """Convert database row to Neuron."""
     return Neuron(
         id=str(row["id"]),
@@ -76,7 +86,13 @@ def row_to_neuron(row: Any, dialect: Any = None) -> Neuron:
     )
 
 
-def row_to_neuron_state(row: Any, dialect: Any = None) -> NeuronState:
+def row_to_neuron_state(dialect_or_row: Any, row_or_dialect: Any = None) -> NeuronState:
+    if row_or_dialect is None:
+        row = dialect_or_row
+    elif hasattr(dialect_or_row, "name"):
+        row = row_or_dialect
+    else:
+        row = dialect_or_row
     """Convert database row to NeuronState."""
     return NeuronState(
         neuron_id=str(row["neuron_id"]),
@@ -92,8 +108,14 @@ def row_to_neuron_state(row: Any, dialect: Any = None) -> NeuronState:
     )
 
 
-def row_to_synapse(row: Any, dialect: Any = None) -> Synapse:
+def row_to_synapse(dialect_or_row: Any, row_or_dialect: Any = None) -> Synapse:
     """Convert database row to Synapse."""
+    if row_or_dialect is None:
+        row = dialect_or_row
+    elif hasattr(dialect_or_row, "name"):
+        row = row_or_dialect
+    else:
+        row = dialect_or_row
     return Synapse(
         id=str(row["id"]),
         source_id=str(row["source_id"]),
@@ -108,7 +130,7 @@ def row_to_synapse(row: Any, dialect: Any = None) -> Synapse:
     )
 
 
-def row_to_fiber(row: Any, dialect: Any = None) -> Fiber:
+def row_to_fiber(dialect: Any, row: Any) -> Fiber:
     """Convert database row to Fiber."""
     neuron_ids = _parse_json_field(row["neuron_ids"]) or []
     synapse_ids = _parse_json_field(row["synapse_ids"]) or []
@@ -145,13 +167,19 @@ def row_to_fiber(row: Any, dialect: Any = None) -> Fiber:
     )
 
 
-def row_to_brain(row: Any, dialect: Any = None) -> Brain:
+def row_to_brain(dialect_or_row: Any, row_or_dialect: Any = None) -> Brain:
     """Convert database row to Brain."""
+    if row_or_dialect is None:
+        row = dialect_or_row
+    elif hasattr(dialect_or_row, "name"):
+        row = row_or_dialect
+    else:
+        row = dialect_or_row
     config_data = _parse_json_field(row["config"]) or {}
     config = BrainConfig(
         decay_rate=config_data.get("decay_rate", 0.1),
         reinforcement_delta=config_data.get("reinforcement_delta", 0.05),
-        activation_threshold=config_data.get("activation_threshold", 0.2),
+        activation_threshold=config_data.get("activation_threshold", 0.3),
         max_spread_hops=config_data.get("max_spread_hops", 4),
         max_context_tokens=config_data.get("max_context_tokens", 1500),
         default_synapse_weight=config_data.get("default_synapse_weight", 0.5),
@@ -209,11 +237,17 @@ def provenance_to_dict(provenance: Provenance) -> dict[str, object]:
     }
 
 
-def row_to_typed_memory(row: Any, dialect: Any = None) -> TypedMemory:
+def row_to_typed_memory(dialect_or_row: Any, row_or_dialect: Any = None) -> TypedMemory:
     """Convert database row to TypedMemory.
 
     Works with both SQLite (string provenance) and PostgreSQL (possibly native dict).
     """
+    if row_or_dialect is None:
+        row = dialect_or_row
+    elif hasattr(dialect_or_row, "name"):
+        row = row_or_dialect
+    else:
+        row = dialect_or_row
     prov_raw = row["provenance"]
     prov_data = _parse_json_field(prov_raw) or {}
     provenance = Provenance(
@@ -276,11 +310,17 @@ def row_to_typed_memory(row: Any, dialect: Any = None) -> TypedMemory:
     )
 
 
-def _row_to_joined_synapse(row: Any, dialect: Any = None) -> Synapse:
+def _row_to_joined_synapse(dialect_or_row: Any, row_or_dialect: Any = None) -> Synapse:
     """Convert a joined row (s_ prefixed columns) to a Synapse.
 
     Used by graph traversal in synapses mixin.
     """
+    if row_or_dialect is None:
+        row = dialect_or_row
+    elif hasattr(dialect_or_row, "name"):
+        row = row_or_dialect
+    else:
+        row = dialect_or_row
     s_created = _get(row, "s_created_at") or _get(row, "s_created")
     created = _normalize_dt(s_created)
     return Synapse(

@@ -95,7 +95,7 @@ export function BrainCard({ manifest, onClick }: BrainCardProps) {
             <span className="inline-flex items-center gap-1">
               <Star className="size-3 text-amber-500" weight="fill" aria-hidden="true" />
               {manifest.rating_avg.toFixed(1)}
-              <span className="text-muted-foreground/60">({manifest.rating_count})</span>
+              <span className="text-foreground/40">({manifest.rating_count})</span>
             </span>
           )}
         </div>

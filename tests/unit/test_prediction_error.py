@@ -10,6 +10,7 @@ from neural_memory.engine.prediction_error import (
     PredictionErrorStep,
     _detects_reversal,
     compute_surprise_bonus,
+    detect_deja_vu,
 )
 from neural_memory.utils.simhash import simhash
 
@@ -274,3 +275,195 @@ class TestPredictionErrorStep:
         step = PredictionErrorStep()
         result = await step.execute(mock_ctx, mock_storage, mock_config)
         assert result.effective_metadata["auto_priority"] <= 10
+
+
+class TestDetectDejaVu:
+    """Test scar tissue detection — déjà vu warnings."""
+
+    @pytest.fixture
+    def mock_storage(self) -> AsyncMock:
+        storage = AsyncMock()
+        storage.find_neurons = AsyncMock(return_value=[])
+        storage.get_synapses = AsyncMock(return_value=[])
+        return storage
+
+    @pytest.mark.asyncio
+    async def test_no_tags_returns_empty(self, mock_storage: AsyncMock) -> None:
+        result = await detect_deja_vu(
+            content_hash=simhash("test"), tags=set(), storage=mock_storage
+        )
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_no_candidates_returns_empty(self, mock_storage: AsyncMock) -> None:
+        result = await detect_deja_vu(
+            content_hash=simhash("test"), tags={"python"}, storage=mock_storage
+        )
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_similar_neuron_without_scar_synapses(self, mock_storage: AsyncMock) -> None:
+        """Similar content but no causal chain → no warning."""
+        content = "database migration failed due to lock"
+        h = simhash(content)
+
+        neuron = MagicMock()
+        neuron.id = "n1"
+        neuron.content = content
+        neuron.content_hash = h
+
+        mock_storage.find_neurons = AsyncMock(return_value=[neuron])
+        mock_storage.get_synapses = AsyncMock(return_value=[])
+
+        result = await detect_deja_vu(
+            content_hash=h, tags={"database", "migration"}, storage=mock_storage
+        )
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_similar_neuron_with_caused_by_synapse(self, mock_storage: AsyncMock) -> None:
+        """Similar content + CAUSED_BY synapse → warning."""
+        content = "database migration failed due to lock timeout"
+        h = simhash(content)
+
+        neuron = MagicMock()
+        neuron.id = "n1"
+        neuron.content = content
+        neuron.content_hash = h
+
+        scar_synapse = MagicMock()
+        scar_synapse.type = "caused_by"
+
+        mock_storage.find_neurons = AsyncMock(return_value=[neuron])
+        # First call (source_id) returns the scar synapse
+        mock_storage.get_synapses = AsyncMock(return_value=[scar_synapse])
+
+        result = await detect_deja_vu(
+            content_hash=h, tags={"database", "migration"}, storage=mock_storage
+        )
+        assert len(result) == 1
+        assert result[0]["similar_neuron_id"] == "n1"
+        assert result[0]["hamming_distance"] == 0
+        assert "caused_by" in result[0]["chain_types"]
+
+    @pytest.mark.asyncio
+    async def test_similar_neuron_with_incoming_resolved_by(self, mock_storage: AsyncMock) -> None:
+        """Scar detected via incoming RESOLVED_BY synapse."""
+        content = "API rate limit error on endpoint /users"
+        h = simhash(content)
+
+        neuron = MagicMock()
+        neuron.id = "n2"
+        neuron.content = content
+        neuron.content_hash = h
+
+        resolved_synapse = MagicMock()
+        resolved_synapse.type = "resolved_by"
+
+        # source_id query returns nothing, target_id query returns resolved_by
+        mock_storage.find_neurons = AsyncMock(return_value=[neuron])
+        mock_storage.get_synapses = AsyncMock(side_effect=[[], [resolved_synapse]])
+
+        result = await detect_deja_vu(content_hash=h, tags={"api", "rate"}, storage=mock_storage)
+        assert len(result) == 1
+        assert "resolved_by" in result[0]["chain_types"]
+
+    @pytest.mark.asyncio
+    async def test_distant_hash_no_warning(self, mock_storage: AsyncMock) -> None:
+        """High hamming distance → no warning even with scar synapses."""
+        neuron = MagicMock()
+        neuron.id = "n3"
+        neuron.content = "completely different topic about cooking"
+        neuron.content_hash = simhash("completely different topic about cooking")
+
+        mock_storage.find_neurons = AsyncMock(return_value=[neuron])
+
+        result = await detect_deja_vu(
+            content_hash=simhash("database migration failed due to lock"),
+            tags={"database"},
+            storage=mock_storage,
+        )
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_max_three_warnings(self, mock_storage: AsyncMock) -> None:
+        """Caps at 3 warnings."""
+        content = "repeated pattern"
+        h = simhash(content)
+
+        neurons = []
+        for i in range(5):
+            n = MagicMock()
+            n.id = f"n{i}"
+            n.content = content
+            n.content_hash = h
+            neurons.append(n)
+
+        scar = MagicMock()
+        scar.type = "leads_to"
+
+        mock_storage.find_neurons = AsyncMock(return_value=neurons)
+        mock_storage.get_synapses = AsyncMock(return_value=[scar])
+
+        result = await detect_deja_vu(content_hash=h, tags={"repeated"}, storage=mock_storage)
+        assert len(result) <= 3
+
+
+class TestPredictionErrorStepDejaVu:
+    """Test déjà vu integration in the pipeline step."""
+
+    @pytest.fixture
+    def mock_ctx(self) -> MagicMock:
+        ctx = MagicMock()
+        ctx.content = "deployment script failed on staging"
+        ctx.merged_tags = {"deployment", "staging"}
+        ctx.auto_tags = {"deployment", "staging"}
+        ctx.content_hash = simhash("deployment script failed on staging")
+        ctx.effective_metadata = {}
+        return ctx
+
+    @pytest.fixture
+    def mock_config(self) -> MagicMock:
+        config = MagicMock()
+        config.prediction_error_enabled = True
+        return config
+
+    @pytest.fixture
+    def mock_storage(self) -> AsyncMock:
+        storage = AsyncMock()
+        storage.find_neurons = AsyncMock(return_value=[])
+        storage.get_synapses = AsyncMock(return_value=[])
+        return storage
+
+    @pytest.mark.asyncio
+    async def test_deja_vu_stored_in_metadata(
+        self, mock_ctx: MagicMock, mock_storage: AsyncMock, mock_config: MagicMock
+    ) -> None:
+        """When scar tissue found, _deja_vu is stored in effective_metadata."""
+        content = mock_ctx.content
+        h = mock_ctx.content_hash
+
+        scar_neuron = MagicMock()
+        scar_neuron.id = "scar-1"
+        scar_neuron.content = content
+        scar_neuron.content_hash = h
+
+        scar_synapse = MagicMock()
+        scar_synapse.type = "caused_by"
+
+        mock_storage.find_neurons = AsyncMock(return_value=[scar_neuron])
+        mock_storage.get_synapses = AsyncMock(return_value=[scar_synapse])
+
+        step = PredictionErrorStep()
+        result = await step.execute(mock_ctx, mock_storage, mock_config)
+        assert "_deja_vu" in result.effective_metadata
+        assert len(result.effective_metadata["_deja_vu"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_no_deja_vu_when_no_scars(
+        self, mock_ctx: MagicMock, mock_storage: AsyncMock, mock_config: MagicMock
+    ) -> None:
+        """No scar tissue → no _deja_vu key."""
+        step = PredictionErrorStep()
+        result = await step.execute(mock_ctx, mock_storage, mock_config)
+        assert "_deja_vu" not in result.effective_metadata

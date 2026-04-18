@@ -197,6 +197,10 @@ _ALL_TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "never synced to cloud, excluded from consolidation. "
                     "Use for scratch notes, debugging context, temporary reasoning.",
                 },
+                "compact": {
+                    "type": "boolean",
+                    "description": "Compact response: return only success + fiber_id + memory_type, skip verbose metadata. Saves 200-400 tokens. Default: true. Set false for full response.",
+                },
             },
             "required": ["content"],
         },
@@ -363,7 +367,11 @@ _ALL_TOOL_SCHEMAS: list[dict[str, Any]] = [
                 },
                 "clean_for_prompt": {
                     "type": "boolean",
-                    "description": "Return clean bullet-point text without section headers or neuron-type tags. Use when injecting recall output into prompts to prevent self-referential noise on re-ingest. Default: false.",
+                    "description": "Return clean bullet-point text without section headers or neuron-type tags. Default: true.",
+                },
+                "compact": {
+                    "type": "boolean",
+                    "description": "Compact mode: return only core answer + confidence, skip all optional metadata (thought_chains, sources, cognitive_chunks, etc). Saves 200-800 tokens. Default: true. Set false for full metadata.",
                 },
                 "tier": {
                     "type": "string",
@@ -390,6 +398,37 @@ _ALL_TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "description": "SimHash pre-filter Hamming distance cutoff. Neurons with content_hash farther than "
                     "this threshold from the query hash are excluded before spreading activation. "
                     "0 = disabled (default). Lower values = stricter filtering. Overrides brain config for this query.",
+                },
+                "min_arousal": {
+                    "type": "number",
+                    "minimum": 0.0,
+                    "maximum": 1.0,
+                    "description": "Filter: only return memories with arousal (emotional intensity) >= this value. "
+                    "Arousal is detected at encoding time (0.0=neutral, 1.0=maximum intensity). "
+                    "Use to find emotionally significant memories (e.g. incidents, breakthroughs).",
+                },
+                "valence": {
+                    "type": "string",
+                    "enum": ["positive", "negative", "neutral"],
+                    "description": "Filter: only return memories with this emotional valence. "
+                    "Valence is detected at encoding via sentiment analysis. "
+                    "Use to find e.g. only frustrations (negative) or breakthroughs (positive).",
+                },
+                "layer": {
+                    "type": "string",
+                    "enum": ["auto", "project", "global"],
+                    "description": "Layer scope: 'auto' (default) merges project + global brains, "
+                    "'project' restricts to current brain only, "
+                    "'global' queries only the global brain.",
+                },
+                "exclude_reflexes": {
+                    "type": "boolean",
+                    "description": "Exclude reflex (always-on) neurons from this recall. Default: false.",
+                },
+                "include_paths": {
+                    "type": "boolean",
+                    "description": "Include activation paths (thought chains) showing how each neuron was reached. "
+                    "Returns top-5 paths with neuron content and hop distance. Default: false.",
                 },
             },
             "required": ["query"],
@@ -976,6 +1015,31 @@ _ALL_TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "description": "Max results for list action (default: 50, max: 200)",
                     "minimum": 1,
                     "maximum": 200,
+                },
+            },
+        },
+    },
+    {
+        "name": "nmem_reflex",
+        "description": "Pin/unpin neurons as reflexes (always-on in every recall). Reflexes bypass spreading activation and appear first in context. "
+        "Use for critical rules, preferences, or constraints that must always be present.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["pin", "unpin", "list"],
+                    "description": "Action: pin neuron as reflex, unpin to remove, or list all reflexes",
+                },
+                "neuron_id": {
+                    "type": "string",
+                    "description": "Neuron ID to pin or unpin (required for pin/unpin, ignored for list)",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results for list action (default: 20, max: 50)",
+                    "minimum": 1,
+                    "maximum": 50,
                 },
             },
         },
@@ -1823,14 +1887,21 @@ _ALL_TOOL_SCHEMAS: list[dict[str, Any]] = [
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["status", "recover", "freeze", "thaw"],
+                    "enum": ["status", "recover", "freeze", "thaw", "at_risk"],
                     "description": "status=show lifecycle distribution, recover=rehydrate compressed memory, "
-                    "freeze=prevent compression, thaw=resume normal lifecycle",
+                    "freeze=prevent compression, thaw=resume normal lifecycle, "
+                    "at_risk=show memories expiring soon (forgetting curve)",
                 },
                 "id": {
                     "type": "string",
                     "description": "Neuron ID (required for recover/freeze/thaw). "
                     "For recover, fiber_id is also accepted.",
+                },
+                "within_days": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 90,
+                    "description": "For at_risk: number of days to look ahead for expiring memories (default: 7).",
                 },
             },
             "required": ["action"],
@@ -1990,21 +2061,30 @@ _ALL_TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "nmem_store",
-        "description": "Brain Store — browse, preview, import, and export community knowledge brains. "
+        "description": "Brain Store — browse, preview, import, export, and delete knowledge brains. "
         "Share curated brains with the community or import others' expertise.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["browse", "preview", "import", "export", "publish"],
+                    "enum": ["browse", "preview", "import", "export", "publish", "delete"],
                     "description": "browse=search community brain registry, preview=view brain details before import, "
                     "import=download and import a brain, export=export current brain as .brain file, "
-                    "publish=export and publish brain to community store (requires API key)",
+                    "publish=export and publish brain to community store (requires API key), "
+                    "delete=permanently delete a local brain and all its data (requires brain_id)",
                 },
                 "brain_name": {
                     "type": "string",
                     "description": "Brain name in registry (required for preview/import)",
+                },
+                "brain_id": {
+                    "type": "string",
+                    "description": "Local brain ID to delete (required for delete action)",
+                },
+                "confirm": {
+                    "type": "boolean",
+                    "description": "Must be true to actually delete. Without it, returns a preview of what would be deleted.",
                 },
                 "search": {
                     "type": "string",
@@ -2060,6 +2140,104 @@ _ALL_TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "output_path": {
                     "type": "string",
                     "description": "File path to save exported .brain package (export only)",
+                },
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "nmem_goal",
+        "description": "Goal-directed recall — manage active goals that bias memory retrieval toward relevant context. "
+        "Active goals make recall relevance-based (proximity to goal) instead of just similarity-based.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["create", "list", "subgoals", "activate", "pause", "complete"],
+                    "description": "create=new goal, list=show goals, subgoals=list children of a goal, "
+                    "activate/pause/complete=change state",
+                },
+                "goal": {
+                    "type": "string",
+                    "description": "Goal description (required for create). e.g. 'optimize API latency for sync-hub'",
+                },
+                "goal_id": {
+                    "type": "string",
+                    "description": "Goal ID (required for activate/pause/complete/subgoals)",
+                },
+                "priority": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "description": "Goal priority 1-10 (default 5). Higher = stronger recall boost",
+                },
+                "parent_goal_id": {
+                    "type": "string",
+                    "description": "Parent goal ID (create only). Makes this a subgoal that inherits parent priority boost",
+                },
+                "keywords": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Keywords for topic EMA seeding (auto-extracted if omitted)",
+                },
+                "state": {
+                    "type": "string",
+                    "enum": ["active", "paused", "completed"],
+                    "description": "Filter by state (list only)",
+                },
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "nmem_causal",
+        "description": "Trace causal chains and temporal event sequences through the memory graph. "
+        "Use 'trace' to follow CAUSED_BY/LEADS_TO synapses, 'sequence' to follow BEFORE/AFTER temporal order.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["trace", "sequence"],
+                    "description": "trace=follow causal synapses (CAUSED_BY/LEADS_TO), "
+                    "sequence=follow temporal synapses (BEFORE/AFTER)",
+                },
+                "neuron_id": {
+                    "type": "string",
+                    "description": "Starting neuron ID for traversal",
+                },
+                "direction": {
+                    "type": "string",
+                    "description": "For trace: 'causes' (what caused this) or 'effects' (what this caused). "
+                    "For sequence: 'forward' (what happened next) or 'backward' (what happened before). "
+                    "Defaults: trace→'causes', sequence→'forward'.",
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "description": "Maximum traversal depth (default: 5)",
+                },
+            },
+            "required": ["action", "neuron_id"],
+        },
+    },
+    {
+        "name": "nmem_cache",
+        "description": "Manage activation cache for warm-start recall. "
+        "Cache saves neuron activation states at session end for faster recall on restart. "
+        "Auto-saved on MCP shutdown, auto-loaded on startup. Use status to check hit rate.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["status", "clear", "save", "load"],
+                    "description": "status=show cache stats (hit rate, entries, age), "
+                    "clear=invalidate cache (use after brain modifications), "
+                    "save=force snapshot current activations, "
+                    "load=force restore cached states",
                 },
             },
             "required": ["action"],

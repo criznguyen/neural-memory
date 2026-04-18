@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 38
+SCHEMA_VERSION = 39
 
 # â”€â”€ Migrations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Each entry maps (from_version -> to_version) with a list of SQL statements.
@@ -636,6 +636,10 @@ MIGRATIONS: dict[tuple[int, int], list[str]] = {
         # Fix L1: Promote pre-v37 BOUNDARY memories from default 'warm' to 'hot'
         "UPDATE typed_memories SET tier = 'hot' WHERE memory_type = 'boundary' AND tier != 'hot'",
     ],
+    (38, 39): [
+        # SM-2 ease factor for spaced repetition (default 2.5)
+        "ALTER TABLE review_schedules ADD COLUMN ease_factor REAL NOT NULL DEFAULT 2.5",
+    ],
 }
 
 
@@ -1023,6 +1027,7 @@ CREATE TABLE IF NOT EXISTS review_schedules (
     last_reviewed TEXT,
     review_count INTEGER DEFAULT 0,
     streak INTEGER DEFAULT 0,
+    ease_factor REAL NOT NULL DEFAULT 2.5,
     created_at TEXT NOT NULL,
     PRIMARY KEY (fiber_id, brain_id),
     FOREIGN KEY (brain_id) REFERENCES brains(id) ON DELETE CASCADE

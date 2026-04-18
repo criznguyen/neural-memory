@@ -11,6 +11,7 @@ from neural_memory.mcp.auto_capture import analyze_text_for_memories
 from neural_memory.mcp.constants import MAX_CONTENT_LENGTH
 
 if TYPE_CHECKING:
+    from neural_memory.engine.session_reflection import SessionReflection
     from neural_memory.storage.base import NeuralStorage
     from neural_memory.unified_config import UnifiedConfig
 
@@ -31,9 +32,14 @@ class AutoHandler:
     config: UnifiedConfig
     _remember: Any
     _passive_capture_timestamps: list[float]
+    _session_memories: list[dict[str, Any]]  # Accumulated auto-captured memories
 
     async def get_storage(self) -> NeuralStorage:
         raise NotImplementedError
+
+    def _get_session_id(self) -> str:
+        """Get current session ID (consistent with recall_handler)."""
+        return f"mcp-{id(self)}"
 
     async def _auto(self, args: dict[str, Any]) -> dict[str, Any]:
         """Handle auto-capture settings and analysis."""
@@ -150,6 +156,13 @@ class AutoHandler:
         except Exception:
             logger.debug("Ephemeral cleanup skipped (non-critical)", exc_info=True)
 
+        # Session-end reflection: analyze session memories for patterns
+        reflection_result = None
+        try:
+            reflection_result = await self._run_session_reflection()
+        except Exception:
+            logger.debug("Session reflection skipped (non-critical)", exc_info=True)
+
         # Regenerate Knowledge Surface after processing session summary
         surface_regenerated = False
         try:
@@ -168,7 +181,84 @@ class AutoHandler:
         }
         if ephemeral_cleaned > 0:
             response["ephemeral_cleaned"] = ephemeral_cleaned
+        if reflection_result and reflection_result.patterns_found > 0:
+            response["reflection"] = {
+                "summary": reflection_result.summary,
+                "patterns_found": reflection_result.patterns_found,
+                "insights_saved": len(reflection_result.pattern_neurons),
+                "session_stats": reflection_result.session_stats,
+            }
         return response
+
+    async def _run_session_reflection(self) -> SessionReflection | None:
+        """Run session-end reflection and save pattern neurons.
+
+        Analyzes in-memory session memories, detects patterns, and saves
+        insight/workflow/decision neurons.
+
+        Returns:
+            SessionReflection result, or None if reflection was skipped.
+        """
+        from neural_memory.engine.session_reflection import reflect_on_session
+        from neural_memory.engine.session_state import SessionManager
+
+        if not hasattr(self, "_session_memories"):
+            self._session_memories = []
+
+        session_id = self._get_session_id()
+
+        # Get session state for topics and query count
+        session_state = SessionManager.get_instance().get(session_id)
+        session_topics: list[str] = []
+        query_count = 0
+        if session_state is not None:
+            session_topics = session_state.get_top_topics(limit=5)
+            query_count = session_state.query_count
+
+        reflection = reflect_on_session(
+            memories=self._session_memories,
+            session_topics=session_topics,
+            query_count=query_count,
+        )
+
+        if not reflection.pattern_neurons:
+            return reflection
+
+        # Save reflection summary neuron
+        session_tag = f"session:{session_id}"
+        await self._remember(
+            {
+                "content": reflection.summary,
+                "type": "workflow",
+                "priority": 6,
+                "tags": [session_tag, "reflection"],
+                "_auto_capture": True,
+            }
+        )
+
+        # Save pattern neurons (insights, decisions from detected patterns)
+        for pn in reflection.pattern_neurons:
+            await self._remember(
+                {
+                    "content": pn["content"],
+                    "type": pn["type"],
+                    "priority": pn["priority"],
+                    "tags": [session_tag, "reflection"],
+                    "_auto_capture": True,
+                }
+            )
+
+        logger.info(
+            "Session reflection: %d patterns found, %d neurons saved",
+            reflection.patterns_found,
+            len(reflection.pattern_neurons) + 1,
+        )
+
+        # Clear session memories after reflection to prevent unbounded growth
+        # and duplicate reflections on subsequent process calls
+        self._session_memories = []
+
+        return reflection
 
     async def _regenerate_surface_if_available(self) -> None:
         """Regenerate Knowledge Surface if the feature is available."""
@@ -263,6 +353,9 @@ class AutoHandler:
                 logger.debug("Auto-redacted %d matches in flush memory", len(matches))
             redacted.append({**item, "content": redacted_content})
 
+        # Tag with session ID for session-end reflection
+        session_tag = f"session:{self._get_session_id()}"
+
         results = await asyncio.gather(
             *[
                 self._remember(
@@ -270,13 +363,20 @@ class AutoHandler:
                         "content": item["content"],
                         "type": item["type"],
                         "priority": item.get("priority", 5),
-                        "tags": ["emergency_flush"],
+                        "tags": ["emergency_flush", session_tag],
                         "_auto_capture": True,
                     }
                 )
                 for item in redacted
             ]
         )
+        # Track saved memories for session-end reflection
+        if not hasattr(self, "_session_memories"):
+            self._session_memories = []
+        for item, result in zip(redacted, results, strict=False):
+            if "error" not in result:
+                self._session_memories.append(item)
+
         return [
             item["content"][:50]
             for item, result in zip(redacted, results, strict=False)
@@ -408,6 +508,13 @@ class AutoHandler:
                 logger.debug("Auto-redacted %d matches in auto-captured memory", len(matches))
             redacted_eligible.append({**item, "content": redacted})
 
+        # Significance scoring (amygdala boost) — adjust priorities before saving
+        if self.config.proactive.significance_enabled:
+            redacted_eligible = await self._apply_significance(redacted_eligible)
+
+        # Tag with session ID for session-end reflection
+        session_tag = f"session:{self._get_session_id()}"
+
         results = await asyncio.gather(
             *[
                 self._remember(
@@ -415,17 +522,88 @@ class AutoHandler:
                         "content": item["content"],
                         "type": item["type"],
                         "priority": item.get("priority", 5),
+                        "tags": [session_tag],
                         "_auto_capture": True,
                     }
                 )
                 for item in redacted_eligible
             ]
         )
+
+        # Track saved memories for session-end reflection
+        if not hasattr(self, "_session_memories"):
+            self._session_memories = []
+        for item, result in zip(redacted_eligible, results, strict=False):
+            if "error" not in result:
+                self._session_memories.append(item)
+
         return [
             item["content"][:50]
             for item, result in zip(redacted_eligible, results, strict=False)
             if "error" not in result
         ]
+
+    async def _apply_significance(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Score items for significance and adjust priorities.
+
+        Near-duplicate items (surprise=0.0) are filtered out entirely.
+        Other items get priority boosts based on significance signals.
+        """
+        from neural_memory.engine.significance import score_significance
+
+        try:
+            storage = await self.get_storage()
+            brain_id = storage.brain_id
+            if not brain_id:
+                return items
+            brain = await storage.get_brain(brain_id)
+            if not brain:
+                return items
+        except Exception:
+            logger.debug("Significance: storage unavailable, skipping scoring", exc_info=True)
+            return items
+
+        config = self.config.proactive
+        scored: list[dict[str, Any]] = []
+        for item in items:
+            try:
+                sig = await score_significance(
+                    content=item["content"],
+                    detected_type=item["type"],
+                    base_priority=item.get("priority", 5),
+                    storage=storage,
+                    brain_config=brain.config,
+                    correction_boost=config.correction_boost,
+                    contradiction_boost=config.contradiction_boost,
+                    novelty_boost=config.novelty_boost,
+                )
+
+                # Skip near-duplicates (adjusted priority <= 2 after penalty)
+                if sig.adjusted_priority <= 2:
+                    logger.debug(
+                        "Significance: skipping near-duplicate: %s",
+                        item["content"][:50],
+                    )
+                    continue
+
+                new_item = {
+                    **item,
+                    "priority": sig.adjusted_priority,
+                    "_significance": sig.to_metadata(),
+                }
+
+                # Tag contradictions for proactive surfacing
+                if sig.is_contradiction:
+                    existing_tags = list(item.get("tags", []))
+                    existing_tags.append("contradiction")
+                    new_item["tags"] = existing_tags
+
+                scored.append(new_item)
+            except Exception:
+                logger.debug("Significance scoring failed for item", exc_info=True)
+                scored.append(item)  # keep original on failure
+
+        return scored
 
     def _run_detection(self, text: str) -> list[dict[str, Any]]:
         """Run pattern detection with current config."""

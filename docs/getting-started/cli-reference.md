@@ -988,8 +988,6 @@ nmem migrate [OPTIONS]
 |--------|------|----------|---------|-------------|
 | `target` | text | Yes | — | (positional argument) |
 | `--brain / -b` | text | No | — | Specific brain to migrate (default: current) |
-| `--falkordb-host` | text | No | `localhost` | FalkorDB host |
-| `--falkordb-port` | integer | No | `6379` | FalkorDB port |
 | `--pg-host` | text | No | `localhost` | PostgreSQL host |
 | `--pg-port` | integer | No | `5432` | PostgreSQL port |
 | `--pg-database` | text | No | `neuralmemory` | PostgreSQL database name |

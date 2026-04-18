@@ -104,11 +104,11 @@ def compute_composite_score(
         Composite score in range [0.0, 1.0]
     """
     return (
-        0.30 * min(activation, 1.0)
+        0.25 * min(activation, 1.0)
         + 0.25 * min(priority, 1.0)
         + 0.20 * min(frequency, 1.0)
         + 0.15 * min(conductivity, 1.0)
-        + 0.10 * min(freshness, 1.0)
+        + 0.15 * min(freshness, 1.0)
     )
 
 

@@ -56,6 +56,10 @@ class BudgetConfig:
     min_fiber_tokens: int = 10
     # Maximum fibers to consider (pre-filter)
     max_fibers_considered: int = 50
+    # Enable cross-fiber dedup/merge/rescore via context compiler
+    enable_compiler: bool = True
+    # SimHash hamming distance threshold for near-duplicate detection
+    compiler_dedup_threshold: int = 10
 
 
 def estimate_fiber_tokens(

@@ -197,6 +197,7 @@ class SpreadingActivation:
         min_activation: float | None = None,
         anchor_activations: dict[str, float] | None = None,
         scope: set[str] | None = None,
+        warm_activations: dict[str, float] | None = None,
     ) -> tuple[dict[str, ActivationResult], ActivationTrace]:
         """
         Spread activation from anchor neurons through the graph.
@@ -218,6 +219,10 @@ class SpreadingActivation:
             scope: Optional set of neuron IDs to constrain activation spreading.
                    When set, only neurons in this set are traversed.
                    Used by hybrid recall to limit activation to HNSW candidates.
+            warm_activations: Optional cached activation levels from prior sessions
+                              (ActivationCache). When an anchor appears here, its
+                              initial level is boosted to max(default, cached) —
+                              frequently-activated neurons start warmer.
 
         Returns:
             Tuple of (dict mapping neuron_id to ActivationResult, ActivationTrace)
@@ -246,11 +251,16 @@ class SpreadingActivation:
         # Neighbor cache: avoid re-fetching neighbors for the same neuron
         neighbor_cache: dict[str, list[tuple[Neuron, Synapse]]] = {}
 
+        # Neuron object cache for abstraction constraint lookups
+        neuron_objects: dict[str, Neuron] = {}
+
         # Priority queue for BFS with activation ordering
         queue: list[ActivationState] = []
 
         # Initialize with anchor neurons (batch fetch)
         anchor_neurons_map = await self._storage.get_neurons_batch(list(anchor_neurons))
+        neuron_objects.update(anchor_neurons_map)
+
         for anchor_id in anchor_neurons:
             if anchor_id not in anchor_neurons_map:
                 continue
@@ -258,6 +268,13 @@ class SpreadingActivation:
             initial_level = (
                 anchor_activations.get(anchor_id, 1.0) if anchor_activations is not None else 1.0
             )
+
+            # Warm-start: boost anchors that were previously active in the cache.
+            # Clamp to 1.0 so we never spread with activation above the normal max.
+            if warm_activations is not None:
+                cached_level = warm_activations.get(anchor_id)
+                if cached_level is not None and cached_level > initial_level:
+                    initial_level = min(1.0, cached_level)
 
             state = ActivationState(
                 neuron_id=anchor_id,
@@ -333,6 +350,10 @@ class SpreadingActivation:
                     min_weight=0.1,
                 )
                 neighbor_cache[current.neuron_id] = neighbors
+                # Populate neuron_objects with newly seen neighbors
+                for _nn, _s in neighbors:
+                    if _nn.id not in neuron_objects:
+                        neuron_objects[_nn.id] = _nn
 
             # Batch-prefetch neuron states for uncached neighbors
             uncached_ids = [n.id for n, _ in neighbors if n.id not in freq_cache]
@@ -357,6 +378,18 @@ class SpreadingActivation:
                 # Skip neurons in refractory cooldown
                 if neighbor_neuron.id in refractory_ids:
                     continue
+                # Abstraction constraint: skip if level distance exceeds max
+                if self._config.abstraction_constraint_enabled:
+                    current_neuron_obj = neuron_objects.get(current.neuron_id)
+                    if current_neuron_obj is not None:
+                        from neural_memory.engine.abstraction import can_activate
+
+                        if not can_activate(
+                            current_neuron_obj,
+                            neighbor_neuron,
+                            self._config.abstraction_max_distance,
+                        ):
+                            continue
                 # Frequency boost: frequently accessed neurons conduct stronger
                 # (myelination metaphor — well-used pathways transmit faster)
                 freq = freq_cache.get(neighbor_neuron.id, 0)
@@ -418,6 +451,7 @@ class SpreadingActivation:
         max_hops: int | None = None,
         anchor_activations: dict[str, float] | None = None,
         scope: set[str] | None = None,
+        warm_activations: dict[str, float] | None = None,
     ) -> tuple[dict[str, ActivationResult], list[str]]:
         """
         Activate from multiple anchor sets and find intersections.
@@ -431,6 +465,9 @@ class SpreadingActivation:
             max_hops: Maximum hops for each activation
             anchor_activations: Optional per-anchor initial activation levels (from RRF).
             scope: Optional set of neuron IDs to constrain spreading.
+            warm_activations: Optional cached activation levels from prior sessions
+                              (ActivationCache). Boosts initial level of anchors
+                              that were previously active.
 
         Returns:
             Tuple of (combined activations, intersection neuron IDs)
@@ -440,7 +477,13 @@ class SpreadingActivation:
 
         # Activate from each set in parallel
         tasks = [
-            self.activate(anchors, max_hops, anchor_activations=anchor_activations, scope=scope)
+            self.activate(
+                anchors,
+                max_hops,
+                anchor_activations=anchor_activations,
+                scope=scope,
+                warm_activations=warm_activations,
+            )
             for anchors in anchor_sets
             if anchors
         ]

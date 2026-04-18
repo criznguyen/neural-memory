@@ -93,6 +93,9 @@ class ConflictHandler:
                         "confidence": s.weight,
                         "detected_at": s.metadata.get("detected_at", ""),
                         "is_superseded": is_superseded,
+                        "temporal_classification": s.metadata.get(
+                            "temporal_classification", "true_contradiction"
+                        ),
                         "auto_resolved": s.metadata.get("_auto_resolved", False),
                         "auto_resolve_reason": s.metadata.get("_auto_resolve_reason", ""),
                     }
@@ -217,6 +220,9 @@ class ConflictHandler:
         )
         await storage.update_synapse(resolved_synapse)
 
+        # Cascade staleness from superseded neuron
+        await self._try_cascade_staleness(storage, disputing.id)
+
     async def _resolve_keep_new(
         self,
         storage: Any,
@@ -240,6 +246,32 @@ class ConflictHandler:
             created_at=synapse.created_at,
         )
         await storage.update_synapse(resolved_synapse)
+
+        # Cascade staleness from superseded neuron
+        await self._try_cascade_staleness(storage, existing.id)
+
+    async def _try_cascade_staleness(self, storage: Any, neuron_id: str) -> None:
+        """Cascade staleness from superseded neuron (non-critical).
+
+        Respects cascade_staleness_enabled config flag via the brain's config.
+        """
+        try:
+            # Check config flag via brain
+            brain_id = getattr(storage, "brain_id", None)
+            if brain_id:
+                brain = await storage.get_brain(brain_id)
+                if brain and not getattr(brain.config, "cascade_staleness_enabled", True):
+                    return
+
+            from neural_memory.engine.cascade_invalidation import cascade_staleness
+
+            await cascade_staleness(storage, neuron_id)
+        except Exception:
+            logger.debug(
+                "Cascade staleness failed for %s (non-critical)",
+                neuron_id,
+                exc_info=True,
+            )
 
     async def _resolve_keep_both(
         self,
@@ -303,6 +335,7 @@ class ConflictHandler:
                     "conflict_type": c.type.value,
                     "confidence": c.confidence,
                     "subject": c.subject,
+                    "temporal_classification": c.temporal_classification.value,
                 }
                 for c in conflicts
             ]

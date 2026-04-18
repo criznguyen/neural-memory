@@ -315,6 +315,43 @@ class TestValidateBrainPackage:
         assert valid is False
         assert len(errors) >= 1
 
+    def test_empty_content_hash_still_valid(self) -> None:
+        """Registry brains may lack content_hash — should not block import."""
+        valid, errors = validate_brain_package(
+            {
+                "nmem_brain_package": "1.0",
+                "manifest": {
+                    "id": "test-brain-1",
+                    "name": "test-brain",
+                    "display_name": "Test Brain",
+                    "description": "A test brain from registry",
+                    "author": "tester",
+                    "content_hash": "",
+                },
+                "snapshot": {"neurons": [], "synapses": [], "fibers": []},
+            }
+        )
+        assert valid is True
+        assert errors == []
+
+    def test_no_content_hash_key_still_valid(self) -> None:
+        """Manifest without content_hash key at all should still validate."""
+        valid, errors = validate_brain_package(
+            {
+                "nmem_brain_package": "1.0",
+                "manifest": {
+                    "id": "test-brain-2",
+                    "name": "test-brain",
+                    "display_name": "Test Brain",
+                    "description": "A test brain without hash",
+                    "author": "tester",
+                },
+                "snapshot": {"neurons": [], "synapses": [], "fibers": []},
+            }
+        )
+        assert valid is True
+        assert errors == []
+
 
 # ── Extract Manifest ─────────────────────────────────────────────
 

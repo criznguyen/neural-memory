@@ -46,10 +46,10 @@ BALANCED: dict[str, dict[str, Any]] = {
     "brain": {
         "decay_rate": 0.1,
         "reinforcement_delta": 0.05,
-        "activation_threshold": 0.2,
+        "activation_threshold": 0.3,
         "max_spread_hops": 4,
         "max_context_tokens": 1500,
-        "freshness_weight": 0.0,
+        "freshness_weight": 0.15,
     },
     "maintenance": {
         "auto_consolidate": True,
@@ -69,7 +69,7 @@ MAX_RECALL: dict[str, dict[str, Any]] = {
         "activation_threshold": 0.15,
         "max_spread_hops": 6,
         "max_context_tokens": 3000,
-        "freshness_weight": 0.0,
+        "freshness_weight": 0.1,
     },
     "maintenance": {
         "auto_consolidate": True,

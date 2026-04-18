@@ -3,7 +3,7 @@
 This guide walks you through basic NeuralMemory usage in 5 minutes.
 
 !!! tip "3 tools you need"
-    NeuralMemory has 55 tools, but you only need three: **`nmem_remember`**, **`nmem_recall`**, and **`nmem_health`**. The agent handles the other 52 automatically. See [all tools](../guides/mcp-server.md#available-tools).
+    NeuralMemory has 60 tools, but you only need three: **`nmem_remember`**, **`nmem_recall`**, and **`nmem_health`**. The agent handles the other 57 automatically. See [all tools](../guides/mcp-server.md#available-tools).
 
 ## 0. Setup
 
@@ -52,6 +52,36 @@ Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/item
 ```bash
 nmem init    # Only needed if you want to pre-create config and brain
 ```
+
+## Your First 5 Minutes (MCP)
+
+If you're using Neural Memory through an AI agent (Claude Code, Cursor, etc.), here's the realistic flow:
+
+**Minute 1** — Install and restart your AI tool. The MCP server auto-initializes.
+
+**Minute 2** — Store your first memories by telling the agent:
+
+> "Remember: we chose PostgreSQL over SQLite because we need concurrent writes"
+>
+> "Remember: the auth bug was caused by a null token in the session middleware"
+
+**Minute 3** — Recall naturally:
+
+> "What did we decide about the database?"
+>
+> "What was that auth bug about?"
+
+**Minute 4** — Check brain health:
+
+> "Run nmem_health and show me the report"
+
+**Minute 5** — That's it. The agent handles sessions, context loading, and maintenance in the background. Keep building — memories accumulate and get smarter over time.
+
+---
+
+## CLI Usage
+
+The following sections show CLI commands for direct usage. If you're using MCP (above), the agent calls these automatically.
 
 ## 1. Store Your First Memory
 

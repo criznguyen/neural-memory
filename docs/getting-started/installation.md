@@ -53,14 +53,6 @@ Includes:
 - spaCy - Industrial NLP
 - en_core_web_sm model
 
-### Neo4j Storage
-
-```bash
-pip install neural-memory[neo4j]
-```
-
-For production deployments with Neo4j graph database.
-
 ### All Features
 
 ```bash

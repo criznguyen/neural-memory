@@ -122,7 +122,7 @@ Input Text
          │
          ▼
 ┌─────────────────┐
-│  Storage        │  Persist to graph (schema v38)
+│  Storage        │  Persist to graph (schema v39)
 └─────────────────┘
 ```
 

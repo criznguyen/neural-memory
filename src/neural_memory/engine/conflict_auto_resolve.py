@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from neural_memory.engine.conflict_detection import Conflict
     from neural_memory.storage.base import NeuralStorage
 
+from neural_memory.engine.conflict_detection import TemporalClassification
+
 
 @dataclass(frozen=True)
 class AutoResolution:
@@ -62,6 +64,24 @@ async def try_auto_resolve(
             conflict=conflict,
             resolution="keep_new",
             reason="existing neuron no longer exists",
+            auto_resolved=True,
+        )
+
+    # Rule 0 (highest priority): Grounded neurons always win
+    if existing_neuron.grounded:
+        return AutoResolution(
+            conflict=conflict,
+            resolution="keep_existing",
+            reason="existing neuron is grounded (canonical truth)",
+            auto_resolved=True,
+        )
+
+    # Rule 0.5: Temporal supersession - newer memory replaces older on same topic
+    if conflict.temporal_classification == TemporalClassification.SUPERSEDED:
+        return AutoResolution(
+            conflict=conflict,
+            resolution="keep_new",
+            reason="temporal supersession - newer memory replaces older (>24h gap)",
             auto_resolved=True,
         )
 

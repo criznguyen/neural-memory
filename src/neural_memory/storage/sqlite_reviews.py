@@ -31,6 +31,7 @@ def _row_to_schedule(row: dict[str, object]) -> ReviewSchedule:
         last_reviewed=_parse_dt(row.get("last_reviewed")),
         review_count=int(row.get("review_count", 0)),  # type: ignore[call-overload]
         streak=int(row.get("streak", 0)),  # type: ignore[call-overload]
+        ease_factor=float(row.get("ease_factor") or 2.5),  # type: ignore[arg-type]
         created_at=_parse_dt(row.get("created_at")),
     )
 
@@ -55,14 +56,15 @@ class SQLiteReviewsMixin:
         await conn.execute(
             """INSERT INTO review_schedules
                (fiber_id, brain_id, box, next_review, last_reviewed,
-                review_count, streak, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                review_count, streak, ease_factor, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(fiber_id, brain_id) DO UPDATE SET
                  box = excluded.box,
                  next_review = excluded.next_review,
                  last_reviewed = excluded.last_reviewed,
                  review_count = excluded.review_count,
-                 streak = excluded.streak""",
+                 streak = excluded.streak,
+                 ease_factor = excluded.ease_factor""",
             (
                 schedule.fiber_id,
                 brain_id,
@@ -71,6 +73,7 @@ class SQLiteReviewsMixin:
                 schedule.last_reviewed.isoformat() if schedule.last_reviewed else None,
                 schedule.review_count,
                 schedule.streak,
+                schedule.ease_factor,
                 (schedule.created_at or utcnow()).isoformat(),
             ),
         )

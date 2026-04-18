@@ -65,6 +65,9 @@ async def detect_interference(
 ) -> list[InterferenceResult]:
     """Detect memories that may interfere with a new memory.
 
+    Pinned and grounded neurons are exempt from interference detection —
+    they represent verified knowledge that should not be weakened.
+
     Args:
         new_neuron: Newly encoded neuron
         storage: Storage backend
@@ -80,11 +83,23 @@ async def detect_interference(
     if not enabled:
         return []
 
+    # Pinned/grounded neurons are exempt from interference
+    if new_neuron.grounded:
+        return []
+
     new_hash = simhash(new_neuron.content)
     new_tags = set(new_neuron.metadata.get("tags", [])) if new_neuron.metadata else set()
 
     if not new_tags:
         return []
+
+    # Preload pinned neuron IDs to exempt from interference
+    pinned_ids: set[str] = set()
+    if hasattr(storage, "get_pinned_neuron_ids"):
+        try:
+            pinned_ids = await storage.get_pinned_neuron_ids()
+        except Exception:
+            logger.debug("Failed to load pinned neuron IDs for interference check")
 
     # Find neurons with overlapping tags (paginated to handle large brains)
     candidates: list[Neuron] = []
@@ -97,6 +112,9 @@ async def detect_interference(
             break
         for n in batch:
             if n.metadata and set(n.metadata.get("tags", [])) & new_tags:
+                # Skip pinned and grounded neurons — they are protected
+                if n.id in pinned_ids or n.grounded:
+                    continue
                 candidates.append(n)
                 if len(candidates) >= target:
                     break
@@ -160,6 +178,7 @@ async def resolve_interference(
     storage: NeuralStorage,
     config: BrainConfig,
     dry_run: bool = False,
+    goal_neuron_ids: set[str] | None = None,
 ) -> ResolutionReport:
     """Resolve detected interference.
 
@@ -167,12 +186,16 @@ async def resolve_interference(
     - Proactive: boost new memory priority
     - Fan effect: flag for consolidation merge
 
+    Goal-directed tiebreaker: if the interfered-with neuron is linked to
+    an active goal, the weight reduction is halved (0.975 vs 0.95).
+
     Args:
         results: Interference detection results
         new_neuron: The new neuron causing interference
         storage: Storage backend
         config: Brain configuration
         dry_run: If True, count actions but don't write
+        goal_neuron_ids: Neuron IDs near active goals (reduces penalty)
 
     Returns:
         ResolutionReport with action counts
@@ -180,9 +203,23 @@ async def resolve_interference(
     contradicts_created = 0
     priorities_boosted = 0
     fan_effects_flagged = 0
+    _goal_ids = goal_neuron_ids or set()
+
+    # Preload pinned neuron IDs to protect from weight reduction
+    pinned_ids: set[str] = set()
+    if hasattr(storage, "get_pinned_neuron_ids"):
+        try:
+            pinned_ids = await storage.get_pinned_neuron_ids()
+        except Exception:
+            logger.debug("Failed to load pinned neuron IDs for interference resolution")
 
     for r in results:
         if r.interference_type == InterferenceType.RETROACTIVE:
+            # Skip weight reduction for pinned neurons
+            if r.neuron_id in pinned_ids:
+                logger.debug("Skipping interference for pinned neuron %s", r.neuron_id[:12])
+                continue
+
             if not dry_run:
                 syn = Synapse.create(
                     source_id=new_neuron.id,
@@ -192,12 +229,14 @@ async def resolve_interference(
                 )
                 await storage.add_synapse(syn)
 
-                # Reduce old memory's outgoing weights by 5%
+                # Reduce old memory's outgoing weights
+                # Goal-relevant memories resist interference (halved penalty)
+                _decay = 0.975 if r.neuron_id in _goal_ids else 0.95
                 old_synapses = await storage.get_synapses(source_id=r.neuron_id)
                 for old_syn in old_synapses[:10]:
                     from dataclasses import replace
 
-                    new_weight = max(0.01, old_syn.weight * 0.95)
+                    new_weight = max(0.01, old_syn.weight * _decay)
                     if new_weight != old_syn.weight:
                         updated = replace(old_syn, weight=new_weight)
                         try:

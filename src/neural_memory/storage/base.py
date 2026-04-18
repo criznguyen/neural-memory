@@ -40,13 +40,13 @@ class NeuralStorage(ABC):
 
     # ========== Batch Operations ==========
 
-    def disable_auto_save(self) -> None:  # noqa: B027
+    def disable_auto_save(self) -> None:
         """Disable auto-save for batch operations. No-op by default."""
 
-    def enable_auto_save(self) -> None:  # noqa: B027
+    def enable_auto_save(self) -> None:
         """Re-enable auto-save after batch operations. No-op by default."""
 
-    async def batch_save(self) -> None:  # noqa: B027
+    async def batch_save(self) -> None:
         """Flush pending writes from batch mode. No-op by default."""
 
     # ========== Neuron Operations ==========
@@ -171,6 +171,22 @@ class NeuralStorage(ABC):
             List of matching neurons
         """
         ...
+
+    async def find_reflex_neurons(self, limit: int = 50) -> list[Neuron]:
+        """Find neurons flagged as reflexes (always-on) for the current brain.
+
+        Default implementation uses find_neurons + filter. Backends may override
+        with a more efficient query.
+
+        Args:
+            limit: Maximum reflexes to return (capped at 50).
+
+        Returns:
+            Reflex neurons ordered by created_at descending.
+        """
+        # Fallback: scan all neurons — backends should override for efficiency
+        all_neurons = await self.find_neurons(limit=min(limit, 50) * 10)
+        return [n for n in all_neurons if n.reflex][: min(limit, 50)]
 
     @abstractmethod
     async def suggest_neurons(
@@ -627,7 +643,7 @@ class NeuralStorage(ABC):
 
     # ========== Lifecycle ==========
 
-    async def close(self) -> None:  # noqa: B027
+    async def close(self) -> None:
         """Close storage connections. No-op by default."""
 
     # ========== Brain Operations ==========
@@ -991,7 +1007,7 @@ class NeuralStorage(ABC):
 
     # ========== Maturation Operations ==========
 
-    async def save_maturation(self, record: MaturationRecord) -> None:  # noqa: B027
+    async def save_maturation(self, record: MaturationRecord) -> None:
         """Save or update a maturation record.
 
         Default no-op — backends that support maturation should override.

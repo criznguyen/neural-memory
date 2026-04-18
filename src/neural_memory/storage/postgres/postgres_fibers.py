@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
-from datetime import datetime
+import logging
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from neural_memory.core.fiber import Fiber
 from neural_memory.storage.postgres.postgres_base import PostgresBaseMixin
 from neural_memory.storage.postgres.postgres_row_mappers import row_to_fiber
+from neural_memory.utils.timeutils import utcnow
+
+logger = logging.getLogger(__name__)
 
 
 class PostgresFiberMixin(PostgresBaseMixin):
@@ -91,7 +96,7 @@ class PostgresFiberMixin(PostgresBaseMixin):
 
         if contains_neuron is not None:
             params.append(contains_neuron)
-            query += f" AND id IN (SELECT fiber_id FROM fiber_neurons WHERE brain_id = $1 AND neuron_id = ${len(params)})"  # noqa: S608
+            query += f" AND id IN (SELECT fiber_id FROM fiber_neurons WHERE brain_id = $1 AND neuron_id = ${len(params)})"
 
         if time_overlaps is not None:
             start, end = time_overlaps
@@ -182,7 +187,7 @@ class PostgresFiberMixin(PostgresBaseMixin):
         if order_by not in _allowed_order:
             order_by = "created_at"
         order_dir = "DESC" if descending else "ASC"
-        query = f"SELECT * FROM fibers WHERE brain_id = $1 ORDER BY {order_by} {order_dir} LIMIT $2"  # noqa: S608
+        query = f"SELECT * FROM fibers WHERE brain_id = $1 ORDER BY {order_by} {order_dir} LIMIT $2"
         rows = await self._query_ro(query, brain_id, limit)
         return [row_to_fiber(r) for r in rows]
 
@@ -256,3 +261,215 @@ class PostgresFiberMixin(PostgresBaseMixin):
                 }
             )
         return results
+
+    # ──────────────────── Batch & Search (Phase 3 parity) ────────────────────
+
+    async def find_fibers_batch(
+        self,
+        neuron_ids: list[str],
+        limit_per_neuron: int = 10,
+        tags: set[str] | None = None,
+        tag_mode: str = "and",
+        created_before: datetime | None = None,
+    ) -> list[Fiber]:
+        """Find fibers connected to any of the given neuron IDs.
+
+        Uses a window function to enforce per-neuron limit, then deduplicates.
+        """
+        if not neuron_ids:
+            return []
+        brain_id = self._get_brain_id()
+        total_limit = limit_per_neuron * len(neuron_ids)
+
+        # Build base query with ROW_NUMBER for per-neuron limit
+        query = """
+            SELECT DISTINCT ON (f.id) f.*
+            FROM (
+                SELECT f2.*, fn.neuron_id AS _matched_neuron,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY fn.neuron_id ORDER BY f2.salience DESC
+                       ) AS _rn
+                FROM fibers f2
+                JOIN fiber_neurons fn
+                    ON f2.brain_id = fn.brain_id AND f2.id = fn.fiber_id
+                WHERE fn.brain_id = $1 AND fn.neuron_id = ANY($2::text[])
+            ) f
+            WHERE f._rn <= $3
+        """
+        params: list[Any] = [brain_id, neuron_ids, limit_per_neuron]
+
+        if created_before is not None:
+            params.append(created_before)
+            query += f" AND f.created_at <= ${len(params)}"
+
+        if tags:
+            if tag_mode == "or":
+                params.append(list(tags))
+                query += f" AND f.tags ?| ${len(params)}::text[]"
+            else:
+                params.append(json.dumps(list(tags)))
+                query += f" AND f.tags @> ${len(params)}::jsonb"
+
+        params.append(total_limit)
+        query += f" ORDER BY f.id, f.salience DESC LIMIT ${len(params)}"
+
+        rows = await self._query_ro(query, *params)
+        return [row_to_fiber(r) for r in rows]
+
+    async def search_fiber_summaries(
+        self,
+        query: str,
+        limit: int = 20,
+    ) -> list[Fiber]:
+        """Full-text search on fiber summaries using PostgreSQL tsvector.
+
+        Falls back to ILIKE if tsvector column is not populated.
+        """
+        brain_id = self._get_brain_id()
+        capped_limit = min(limit, 50)
+
+        # Build tsquery from search terms
+        tokens = query.strip().split()
+        if not tokens:
+            return []
+
+        # Try tsvector first
+        try:
+            ts_query = " & ".join(t for t in tokens if t)
+            rows = await self._query_ro(
+                """SELECT f.* FROM fibers f
+                   WHERE f.brain_id = $1
+                     AND f.summary_tsv @@ to_tsquery('english', $2)
+                   ORDER BY ts_rank(f.summary_tsv, to_tsquery('english', $2)) DESC,
+                            f.salience DESC
+                   LIMIT $3""",
+                brain_id,
+                ts_query,
+                capped_limit,
+            )
+            return [row_to_fiber(r) for r in rows]
+        except Exception:
+            logger.debug("FTS failed, falling back to ILIKE", exc_info=True)
+
+        # ILIKE fallback
+        like_conditions = []
+        params: list[Any] = [brain_id]
+        for token in tokens:
+            params.append(f"%{token}%")
+            like_conditions.append(f"f.summary ILIKE ${len(params)}")
+        where_clause = " AND ".join(like_conditions)
+        params.append(capped_limit)
+        sql = f"""SELECT f.* FROM fibers f
+                  WHERE f.brain_id = $1
+                    AND f.summary IS NOT NULL
+                    AND {where_clause}
+                  ORDER BY f.salience DESC LIMIT ${len(params)}"""
+        rows = await self._query_ro(sql, *params)
+        return [row_to_fiber(r) for r in rows]
+
+    async def update_fiber_metadata(
+        self,
+        fiber_id: str,
+        metadata: dict[str, Any],
+    ) -> None:
+        """Merge new metadata into existing fiber metadata (JSONB ||)."""
+        self._get_brain_id()  # Validate brain context
+        # Fetch, merge in Python, write back (safe for complex nested merges)
+        fiber = await self.get_fiber(fiber_id)
+        if fiber is None:
+            return
+        updated_meta = {**fiber.metadata, **metadata}
+        updated_fiber = dataclasses.replace(fiber, metadata=updated_meta)
+        await self.update_fiber(updated_fiber)
+
+    # ──────────────────── Stats Methods ────────────────────
+
+    async def get_stale_fiber_count(self, brain_id: str, stale_days: int = 90) -> int:
+        """Count fibers not accessed within the given number of days."""
+        brain_id = self._get_brain_id()
+        cutoff = utcnow() - timedelta(days=stale_days)
+        row = await self._query_one(
+            """SELECT COUNT(*) AS cnt FROM fibers
+               WHERE brain_id = $1
+                 AND (
+                   (last_conducted IS NULL AND created_at <= $2)
+                   OR (last_conducted IS NOT NULL AND last_conducted <= $2)
+                 )""",
+            brain_id,
+            cutoff,
+        )
+        return int(row["cnt"]) if row else 0
+
+    async def get_fiber_stage_counts(self, brain_id: str) -> dict[str, int]:
+        """Count fibers by maturation stage (from metadata _stage)."""
+        brain_id = self._get_brain_id()
+        rows = await self._query_ro(
+            """SELECT COALESCE(metadata->>'_stage', 'episodic') AS stage,
+                      COUNT(*) AS cnt
+               FROM fibers
+               WHERE brain_id = $1
+               GROUP BY stage""",
+            brain_id,
+        )
+        return {str(r["stage"]): int(r["cnt"]) for r in rows}
+
+    async def get_total_fiber_count(self) -> int:
+        """Count total fibers in the current brain."""
+        brain_id = self._get_brain_id()
+        row = await self._query_one(
+            "SELECT COUNT(*) AS cnt FROM fibers WHERE brain_id = $1",
+            brain_id,
+        )
+        return int(row["cnt"]) if row else 0
+
+    async def batch_update_ghost_shown(self, fiber_ids: list[str], timestamp: datetime) -> int:
+        """Update last_ghost_shown_at for the given fiber IDs."""
+        if not fiber_ids:
+            return 0
+        brain_id = self._get_brain_id()
+        result = await self._query(
+            """UPDATE fibers SET last_ghost_shown_at = $1
+               WHERE brain_id = $2 AND id = ANY($3::text[])""",
+            timestamp,
+            brain_id,
+            fiber_ids,
+        )
+        # asyncpg returns status string like "UPDATE N"
+        if isinstance(result, str) and result.startswith("UPDATE"):
+            parts = result.split()
+            return int(parts[1]) if len(parts) > 1 else 0
+        return len(fiber_ids)
+
+    # ──────────────────── Keyword Document Frequency ────────────────────
+
+    async def get_keyword_df_batch(self, keywords: list[str]) -> dict[str, int]:
+        """Get document frequency for a batch of keywords."""
+        if not keywords:
+            return {}
+        brain_id = self._get_brain_id()
+        rows = await self._query_ro(
+            """SELECT keyword, fiber_count
+               FROM keyword_document_frequency
+               WHERE brain_id = $1 AND keyword = ANY($2::text[])""",
+            brain_id,
+            keywords,
+        )
+        return {str(r["keyword"]): int(r["fiber_count"]) for r in rows}
+
+    async def increment_keyword_df(self, keywords: list[str]) -> None:
+        """Increment document frequency for keywords (upsert)."""
+        if not keywords:
+            return
+        brain_id = self._get_brain_id()
+        now = utcnow()
+        unique_keywords = set(keywords)
+        args_list = [(brain_id, kw, 1, now) for kw in unique_keywords]
+        await self._executemany(
+            """INSERT INTO keyword_document_frequency
+                   (brain_id, keyword, fiber_count, last_updated)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (brain_id, keyword)
+               DO UPDATE SET fiber_count = keyword_document_frequency.fiber_count + 1,
+                             last_updated = EXCLUDED.last_updated""",
+            args_list,
+        )

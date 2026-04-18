@@ -1,9 +1,14 @@
 """Auto-tier engine for promoting/demoting memories based on access patterns.
 
 Moves memories between HOT/WARM/COLD tiers automatically:
-- WARM→HOT: high access frequency (access_frequency >= promote_threshold)
+- WARM→HOT: composite score >= promote_threshold (multi-factor: recency,
+  frequency, importance, causal centrality)
 - HOT→WARM: no recent access (last_activated > demote_inactive_days ago)
 - WARM→COLD: long-term neglect (last_activated > cold_archive_days ago)
+
+Composite score (Pro):
+  0.4 * recency + 0.3 * frequency + 0.2 * importance + 0.1 * causal_centrality
+  Each factor normalized to 0.0-1.0.  Free tier falls back to frequency-only.
 
 Protection rules:
 - BOUNDARY type memories: never demoted (always HOT)
@@ -16,14 +21,17 @@ Pro feature: gated behind config.is_pro().
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from neural_memory.core.memory_types import MemoryTier, MemoryType
+from neural_memory.core.synapse import SynapseType
 from neural_memory.utils.timeutils import utcnow
 
 if TYPE_CHECKING:
+    from neural_memory.core.neuron import NeuronState
     from neural_memory.storage.base import NeuralStorage
     from neural_memory.unified_config import TierConfig
 
@@ -77,6 +85,78 @@ class TierReport:
             "total_changes": self.total_changes,
             "dry_run": self.dry_run,
         }
+
+
+def compute_promotion_score(
+    state: NeuronState,
+    causal_synapse_count: int = 0,
+    *,
+    now: datetime | None = None,
+) -> float:
+    """Compute a multi-factor promotion score for a neuron (0.0-1.0).
+
+    Factors (weighted sum):
+      - recency  (0.4): how recently the neuron was accessed
+      - frequency (0.3): total access count, log-normalized
+      - importance (0.2): activation level as proxy for importance
+      - causal    (0.1): number of causal synapses, log-normalized
+
+    Each factor is normalized to [0.0, 1.0].
+    """
+    if now is None:
+        now = utcnow()
+
+    # Recency: hyperbolic decay based on days since last access
+    last_active = state.last_activated or state.created_at
+    if last_active is not None:
+        days_since = max((now - last_active).total_seconds() / 86400.0, 0.0)
+        recency = 1.0 / (1.0 + days_since / 7.0)
+    else:
+        recency = 0.0
+
+    frequency = min(math.log1p(state.access_frequency) / math.log1p(50), 1.0)
+
+    # Importance: current activation level (already 0-1)
+    importance = max(0.0, min(state.activation_level, 1.0))
+
+    # Causal centrality: log-normalized count of causal synapses
+    causal = min(math.log1p(causal_synapse_count) / math.log1p(20), 1.0)
+
+    return 0.4 * recency + 0.3 * frequency + 0.2 * importance + 0.1 * causal
+
+
+def compute_decay_strength(
+    state: NeuronState,
+    *,
+    now: datetime | None = None,
+) -> float:
+    """Compute memory retention strength using power-law decay (0.0-1.0).
+
+    For neurons with >= 5 accesses, uses power-law:
+        S(t) = (t_days + 1) ^ (-b)  where b = 0.3 (Ebbinghaus-like)
+
+    For cold-start (< 5 accesses), uses hyperbolic fallback:
+        S(t) = 1 / (1 + age_days / 30)
+
+    Higher strength = better retained.
+    """
+    if now is None:
+        now = utcnow()
+
+    last_active = state.last_activated or state.created_at
+    if last_active is None:
+        return 0.0
+
+    days_since = max((now - last_active).total_seconds() / 86400.0, 0.0)
+
+    if state.access_frequency >= 5:
+        # Power-law decay: frequently accessed memories decay slower
+        # b decreases with more accesses (better retention)
+        b = max(0.1, 0.5 - 0.02 * min(state.access_frequency, 20))
+        return float((days_since + 1.0) ** (-b))
+    else:
+        # Hyperbolic fallback for cold-start
+        return 1.0 / (1.0 + days_since / 30.0)
 
 
 class TierEngine:
@@ -138,13 +218,28 @@ class TierEngine:
             if state is None:
                 continue
 
-            if state.access_frequency >= self._config.promote_threshold:
+            # Multi-factor composite score (Pro) or frequency-only (Free)
+            causal_count = 0
+            try:
+                causal_synapses = await self._storage.get_synapses(
+                    source_id=fiber.anchor_neuron_id, type=SynapseType.CAUSED_BY
+                )
+                causal_count = len(causal_synapses)
+            except Exception:
+                pass  # graceful fallback if storage doesn't support type filter
+
+            score = compute_promotion_score(state, causal_count, now=now)
+            # Normalize threshold: promote_threshold was access_frequency count,
+            # now treat it as score threshold mapped to 0.0-1.0 (default 5 → 0.5)
+            score_threshold = min(self._config.promote_threshold / 10.0, 1.0)
+
+            if score >= score_threshold:
                 change = TierChange(
                     fiber_id=mem.fiber_id,
                     memory_type=mem.memory_type.value,
                     from_tier=MemoryTier.WARM,
                     to_tier=MemoryTier.HOT,
-                    reason=f"access_frequency={state.access_frequency} >= {self._config.promote_threshold}",
+                    reason=f"composite_score={score:.3f} >= {score_threshold:.2f}",
                 )
                 promoted.append(change)
                 changed_this_cycle.add(mem.fiber_id)

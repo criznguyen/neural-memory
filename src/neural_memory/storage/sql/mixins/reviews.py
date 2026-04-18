@@ -30,6 +30,7 @@ def _row_to_schedule(row: dict[str, object]) -> ReviewSchedule:
         last_reviewed=_safe_dt(row.get("last_reviewed")),
         review_count=int(row.get("review_count", 0)),  # type: ignore[call-overload]
         streak=int(row.get("streak", 0)),  # type: ignore[call-overload]
+        ease_factor=float(row.get("ease_factor") or 2.5),  # type: ignore[arg-type]
         created_at=_safe_dt(row.get("created_at")),
     )
 
@@ -50,14 +51,15 @@ class ReviewsMixin:
         await d.execute(
             f"""INSERT INTO review_schedules
                 (fiber_id, brain_id, box, next_review, last_reviewed,
-                 review_count, streak, created_at)
-                VALUES ({d.phs(8)})
+                 review_count, streak, ease_factor, created_at)
+                VALUES ({d.phs(9)})
                 ON CONFLICT(fiber_id, brain_id) DO UPDATE SET
                   box = excluded.box,
                   next_review = excluded.next_review,
                   last_reviewed = excluded.last_reviewed,
                   review_count = excluded.review_count,
-                  streak = excluded.streak""",
+                  streak = excluded.streak,
+                  ease_factor = excluded.ease_factor""",
             [
                 schedule.fiber_id,
                 brain_id,
@@ -66,6 +68,7 @@ class ReviewsMixin:
                 d.serialize_dt(schedule.last_reviewed),
                 schedule.review_count,
                 schedule.streak,
+                schedule.ease_factor,
                 d.serialize_dt(schedule.created_at or utcnow()),
             ],
         )

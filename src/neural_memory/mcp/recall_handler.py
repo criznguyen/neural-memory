@@ -146,6 +146,12 @@ class RecallHandler:
             _require_brain_id,
         )
 
+        # Layer=global: redirect to global brain only
+        if args.get("layer") == "global":
+            from neural_memory.unified_config import GLOBAL_BRAIN_NAME
+
+            return await self._cross_brain_recall(args, [GLOBAL_BRAIN_NAME])
+
         # Cross-brain recall: early return if brains parameter is provided
         brain_names = args.get("brains")
         if brain_names and isinstance(brain_names, list) and len(brain_names) > 0:
@@ -160,6 +166,21 @@ class RecallHandler:
         brain = await storage.get_brain(brain_id)
         if not brain:
             return {"error": "No brain configured"}
+
+        # Early exit: empty brain → skip full pipeline (saves 8+ async ops)
+        try:
+            stats = await storage.get_stats(brain_id)
+            if stats.get("neuron_count", 0) == 0:
+                return {
+                    "answer": "No memories stored yet. Use nmem_remember to save your first memory.",
+                    "confidence": 0.0,
+                    "neurons_activated": 0,
+                    "fibers_matched": 0,
+                    "depth_used": args.get("depth", 1),
+                    "tokens_used": 0,
+                }
+        except Exception:
+            pass  # Non-critical — continue with normal flow
 
         query = args.get("query")
         if not query or not isinstance(query, str):
@@ -207,7 +228,7 @@ class RecallHandler:
         if tag_mode not in ("and", "or"):
             return {"error": f"Invalid tag_mode: {tag_mode}. Must be 'and' or 'or'."}
         include_citations = args.get("include_citations", True)
-        clean_for_prompt = bool(args.get("clean_for_prompt", False))
+        clean_for_prompt = bool(args.get("clean_for_prompt", True))
         min_trust: float | None = None
         raw_min_trust = args.get("min_trust")
         if raw_min_trust is not None:
@@ -215,6 +236,22 @@ class RecallHandler:
                 min_trust = float(raw_min_trust)
             except (TypeError, ValueError):
                 return {"error": f"Invalid min_trust: {raw_min_trust}"}
+
+        min_arousal: float | None = None
+        raw_min_arousal = args.get("min_arousal")
+        if raw_min_arousal is not None:
+            try:
+                min_arousal = float(raw_min_arousal)
+            except (TypeError, ValueError):
+                return {"error": f"Invalid min_arousal: {raw_min_arousal}"}
+
+        valence_filter: str | None = args.get("valence")
+        if valence_filter is not None:
+            valence_filter = str(valence_filter).lower().strip()
+            if valence_filter not in ("positive", "negative", "neutral"):
+                return {
+                    "error": f"Invalid valence: {valence_filter}. Must be positive/negative/neutral."
+                }
 
         # Inject session context for richer recall on vague queries
         effective_query = query
@@ -285,7 +322,28 @@ class RecallHandler:
             except (ValueError, TypeError):
                 return {"error": f"Invalid simhash_threshold: {args['simhash_threshold']}"}
 
+        exclude_reflexes = bool(args.get("exclude_reflexes", False))
+
         pipeline = ReflexPipeline(storage, brain.config)
+
+        # Warm-start: inject cached activations from prior sessions.
+        # Uses SSC-lite to select only the top-K cached neurons by query
+        # relevance — stale warm levels stay out of the activation boost.
+        warm = getattr(self, "_cache_manager", None)
+        if warm is not None:
+            try:
+                embed_provider = getattr(pipeline, "_embedding_provider", None)
+                if embed_provider is None:
+                    logger.debug("Warm-start: no embedding provider, using activation fallback")
+                cached_map = await warm.get_warm_activations_selective(
+                    query=effective_query,
+                    embedding_provider=embed_provider,
+                )
+                if cached_map:
+                    pipeline.set_warm_activations(cached_map)
+            except Exception:
+                logger.debug("Warm-start SSC-lite failed, proceeding cold", exc_info=True)
+
         result = await pipeline.query(
             query=effective_query,
             depth=depth,
@@ -298,7 +356,41 @@ class RecallHandler:
             tag_mode=tag_mode,
             as_of=as_of,
             simhash_threshold=simhash_threshold,
+            exclude_reflexes=exclude_reflexes,
         )
+
+        # ── Layered recall: merge global brain results ──
+        recall_layer = args.get("layer", "auto")
+        layers_used: list[str] = ["project"]
+        global_context: str = ""
+
+        if recall_layer != "project":
+            try:
+                from neural_memory.engine.cross_brain import _query_single_brain
+                from neural_memory.unified_config import GLOBAL_BRAIN_NAME
+
+                global_db = self.config.get_brain_db_path(GLOBAL_BRAIN_NAME)
+                if global_db.exists():
+                    _, _, _, global_ctx = await _query_single_brain(
+                        db_path=global_db,
+                        brain_name=GLOBAL_BRAIN_NAME,
+                        query=effective_query,
+                        depth=depth,
+                        max_tokens=min(max_tokens, 200),
+                    )
+                    if global_ctx:
+                        global_context = global_ctx
+                        layers_used.append("global")
+                        from dataclasses import replace as _dc_replace_layer
+
+                        # F-01 fix: merge even when project context is empty
+                        if result.context:
+                            merged = f"{result.context}\n\n[global] {global_ctx}"
+                        else:
+                            merged = f"[global] {global_ctx}"
+                        result = _dc_replace_layer(result, context=merged)
+            except Exception:
+                logger.debug("Global brain recall failed (non-critical)", exc_info=True)
 
         # Passive auto-capture on long queries
         if self.config.auto.enabled and len(query) >= 50:
@@ -361,6 +453,11 @@ class RecallHandler:
                     except Exception:
                         pass
 
+                    # Extract query terms for context compiler (dedup/rescore step).
+                    # Use the effective_query so injected session context is included.
+                    _recall_query_terms: list[str] = [
+                        w for w in effective_query.split() if len(w) > 2
+                    ]
                     budgeted_ctx, _, allocation = await format_context_budgeted(
                         storage=storage,
                         activations=dummy_activations,
@@ -370,6 +467,7 @@ class RecallHandler:
                         brain_id=brain_id,
                         budget_config=budget_cfg,
                         clean_for_prompt=clean_for_prompt,
+                        query_terms=_recall_query_terms,
                     )
 
                     from dataclasses import replace as _dc_replace
@@ -378,6 +476,9 @@ class RecallHandler:
 
                     budget_stats = format_budget_report(allocation)
                     # Replace the pipeline-generated context with budget-aware context
+                    # F-02 fix: re-append global context after budget re-format
+                    if global_context:
+                        budgeted_ctx = f"{budgeted_ctx}\n\n[global] {global_context}"
                     result = _dc_replace(result, context=budgeted_ctx)
             except Exception:
                 logger.warning(
@@ -432,6 +533,45 @@ class RecallHandler:
             except Exception:
                 logger.warning(
                     "Post-filter (trust/tier) failed, returning unfiltered results", exc_info=True
+                )
+
+        # Post-filter by arousal and/or valence (stored in fiber metadata)
+        needs_emotion_filter = min_arousal is not None or valence_filter is not None
+        if needs_emotion_filter and result.fibers_matched:
+            try:
+                emotion_passing: set[str] = set()
+                for fid in result.fibers_matched:
+                    fiber = await storage.get_fiber(fid)
+                    if not fiber:
+                        emotion_passing.add(fid)  # Include if fiber not found
+                        continue
+
+                    # Arousal filter
+                    if min_arousal is not None:
+                        fiber_arousal = fiber.metadata.get("_arousal", 0.0)
+                        if not (
+                            isinstance(fiber_arousal, (int, float)) and fiber_arousal >= min_arousal
+                        ):
+                            continue
+
+                    # Valence filter
+                    if valence_filter is not None:
+                        fiber_valence = fiber.metadata.get("_valence", "")
+                        if fiber_valence != valence_filter:
+                            continue
+
+                    emotion_passing.add(fid)
+
+                filtered_fibers = [f for f in result.fibers_matched if f in emotion_passing]
+                result = (
+                    result._replace(fibers_matched=filtered_fibers)
+                    if hasattr(result, "_replace")
+                    else result
+                )
+            except Exception:
+                logger.warning(
+                    "Post-filter (arousal/valence) failed, returning unfiltered results",
+                    exc_info=True,
                 )
 
         # Exact mode: return raw neuron contents without truncation
@@ -502,6 +642,43 @@ class RecallHandler:
                 "tokens_used": result.tokens_used,
             }
 
+        # Compact mode: return core response only, skip all optional enrichment
+        # Saves ~200-800 tokens of metadata overhead + several async ops
+        compact = bool(args.get("compact", True))
+        if compact:
+            await self._record_tool_action("recall", query[:100])
+            return response
+
+        # Thought Chains: expose activation paths (opt-in)
+        if args.get("include_paths") and result.metadata:
+            activation_levels = result.metadata.get("activation_levels", {})
+            activation_paths = result.metadata.get("activation_paths", {})
+            if activation_levels:
+                # Sort by activation level, take top 5
+                top_ids = sorted(
+                    activation_levels, key=lambda nid: activation_levels[nid], reverse=True
+                )[:5]
+                chains: list[dict[str, Any]] = []
+                for nid in top_ids:
+                    neuron = await storage.get_neuron(nid)
+                    chain_entry: dict[str, Any] = {
+                        "neuron_id": nid,
+                        "content": neuron.content[:200] if neuron else "",
+                        "activation": round(activation_levels[nid], 4),
+                    }
+                    # Add hop-by-hop path if available
+                    path = activation_paths.get(nid, [])
+                    if len(path) > 1:
+                        chain_entry["hops"] = len(path) - 1
+                        chain_entry["path"] = path
+                    chains.append(chain_entry)
+                if chains:
+                    response["thought_chains"] = chains
+
+        # Layered recall metadata
+        if len(layers_used) > 1:
+            response["layers"] = layers_used
+
         if budget_stats is not None:
             response["budget_stats"] = budget_stats
 
@@ -511,6 +688,18 @@ class RecallHandler:
                 "intersection_boost": round(result.score_breakdown.intersection_boost, 4),
                 "freshness_boost": round(result.score_breakdown.freshness_boost, 4),
                 "frequency_boost": round(result.score_breakdown.frequency_boost, 4),
+            }
+
+        # Unified confidence score (metacognitive assessment)
+        if result.confidence_score is not None:
+            cs = result.confidence_score
+            response["confidence_score"] = {
+                "overall": cs.overall,
+                "retrieval": cs.retrieval,
+                "content_quality": cs.content_quality,
+                "fidelity": cs.fidelity,
+                "freshness": cs.freshness,
+                "familiarity_penalty": cs.familiarity_penalty,
             }
 
         # Surface conflict info from retrieval
@@ -696,6 +885,18 @@ class RecallHandler:
         alert_info = await self._surface_pending_alerts()
         if alert_info:
             response.update(alert_info)
+
+        # Proactive hints: surface primed memories the agent didn't ask for
+        if self.config.proactive.enabled:
+            try:
+                proactive_hints = await self._get_proactive_hints(
+                    result,
+                    storage,
+                )
+                if proactive_hints:
+                    response["proactive_hints"] = proactive_hints
+            except Exception:
+                logger.debug("Proactive hint generation failed (non-critical)", exc_info=True)
 
         return response
 
@@ -1230,3 +1431,50 @@ class RecallHandler:
             result["session_summary"] = "--- " + " | ".join(summary_parts) + " ---"
 
         return result
+
+    async def _get_proactive_hints(
+        self,
+        result: Any,
+        storage: NeuralStorage,
+    ) -> list[dict[str, Any]] | None:
+        """Extract proactive hints from priming data in recall result.
+
+        Returns formatted hint list for MCP response, or None if no hints.
+        """
+        from neural_memory.engine.proactive import (
+            format_hints_for_response,
+            select_proactive_hints,
+        )
+
+        metadata = result.metadata or {}
+
+        # Skip if recall confidence is already high (agent got good answers)
+        confidence = getattr(result, "confidence", 0.0)
+        if confidence >= self.config.proactive.skip_high_confidence:
+            return None
+
+        # Get PrimingResult from metadata (stored by retrieval.py)
+        priming_result = metadata.get("_priming_result")
+        if priming_result is None:
+            return None
+
+        # Collect neuron IDs already in the result to avoid redundancy
+        result_neuron_ids: set[str] = set()
+        result_neuron_ids.update(getattr(result, "contributing_neurons", None) or [])
+        subgraph = getattr(result, "subgraph", None)
+        if subgraph:
+            result_neuron_ids.update(getattr(subgraph, "neuron_ids", None) or [])
+
+        hints = await select_proactive_hints(
+            priming_result=priming_result,
+            storage=storage,
+            result_neuron_ids=result_neuron_ids,
+            max_hints=self.config.proactive.max_hints,
+            max_chars=self.config.proactive.max_hint_chars,
+            min_activation=self.config.proactive.min_activation,
+        )
+
+        if not hints:
+            return None
+
+        return format_hints_for_response(hints)

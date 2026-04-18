@@ -199,7 +199,7 @@ class TestBrainConfigEmbeddingFields:
         from neural_memory.core.brain import BrainConfig
 
         config = BrainConfig()
-        assert config.embedding_enabled is False
+        assert config.embedding_enabled is True
         assert config.embedding_provider == "sentence_transformer"
         assert config.embedding_model == "all-MiniLM-L6-v2"
         assert config.embedding_similarity_threshold == 0.7

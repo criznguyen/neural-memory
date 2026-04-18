@@ -46,8 +46,8 @@ class TestReviewSchedule:
         # Allow 1 second tolerance
         assert abs(actual_delta - expected_interval).total_seconds() < 1
 
-    def test_advance_failure_resets_to_box_1(self) -> None:
-        """Test failed review resets to box 1."""
+    def test_advance_failure_graduated_drop(self) -> None:
+        """Test failed review drops 1-2 boxes (graduated, not hard reset)."""
         schedule = ReviewSchedule.create(fiber_id="f1", brain_id="b1")
         # Advance twice successfully
         s2 = schedule.advance(success=True)
@@ -55,11 +55,36 @@ class TestReviewSchedule:
         assert s3.box == 3
         assert s3.streak == 2
 
-        # Fail
+        # Fail at box 3: drop 1 box (graduated)
         failed = s3.advance(success=False)
-        assert failed.box == MIN_BOX
+        assert failed.box == 2  # graduated drop, not hard reset
         assert failed.streak == 0
         assert failed.review_count == 3
+
+    def test_advance_failure_from_high_box_drops_2(self) -> None:
+        """Test failure from box 4+ drops 2 boxes."""
+        schedule = ReviewSchedule.create(fiber_id="f1", brain_id="b1")
+        s = schedule
+        for _ in range(3):
+            s = s.advance(success=True)
+        assert s.box == 4
+
+        failed = s.advance(success=False)
+        assert failed.box == 2  # drop 2 from box 4
+
+    def test_ease_factor_adjusts_on_review(self) -> None:
+        """Test SM-2 ease factor increases on good reviews, decreases on bad."""
+        schedule = ReviewSchedule.create(fiber_id="f1", brain_id="b1")
+        assert schedule.ease_factor == 2.5
+
+        # Good review (quality=5) should increase EF
+        good = schedule.advance(success=True, quality=5)
+        assert good.ease_factor > 2.5
+
+        # Poor review (quality=1) should decrease EF
+        poor = schedule.advance(success=False, quality=1)
+        assert poor.ease_factor < 2.5
+        assert poor.ease_factor >= 1.3  # minimum bound
 
     def test_advance_success_caps_at_max_box(self) -> None:
         """Test box doesn't exceed MAX_BOX on success."""

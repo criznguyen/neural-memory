@@ -1,7 +1,7 @@
 # MCP Tools Reference
 
 Complete reference for all NeuralMemory MCP tools.
-**56 tools** available via MCP stdio transport.
+**60 tools** available via MCP stdio transport.
 
 !!! tip
     Tools are called as MCP tool calls, not CLI commands. In Claude Code, call `nmem_recall` directly — do not run `nmem recall` in terminal.
@@ -62,6 +62,7 @@ Complete reference for all NeuralMemory MCP tools.
   - [`nmem_transplant`](#nmem_transplant)
   - [`nmem_conflicts`](#nmem_conflicts)
 - [Other](#other)
+  - [`nmem_reflex`](#nmem_reflex)
   - [`nmem_visualize`](#nmem_visualize)
   - [`nmem_watch`](#nmem_watch)
   - [`nmem_surface`](#nmem_surface)
@@ -74,6 +75,9 @@ Complete reference for all NeuralMemory MCP tools.
   - [`nmem_boundaries`](#nmem_boundaries)
   - [`nmem_milestone`](#nmem_milestone)
   - [`nmem_store`](#nmem_store)
+  - [`nmem_goal`](#nmem_goal)
+  - [`nmem_causal`](#nmem_causal)
+  - [`nmem_cache`](#nmem_cache)
 
 ---
 
@@ -98,7 +102,7 @@ Store a memory. Auto-detects type, auto-resolves contradicted errors (RESOLVED_B
 | `source_id` | string | No | — | Link this memory to a registered source. Creates a SOURCE_OF synapse for provenance tracking. |
 | `context` | object | No | — | Structured context dict merged into content server-side using type-specific templates. Keys like 'reason', 'alternati... |
 | `ephemeral` | boolean | No | — | Session-scoped memory: auto-expires after TTL (default 24h), never synced to cloud, excluded from consolidation. Use ... |
-| `compact` | boolean | No | — | Return compact response (strip metadata hints, truncate lists). Saves 60-80% tokens. |
+| `compact` | boolean | No | — | Compact response: return only success + fiber_id + memory_type, skip verbose metadata. Saves 200-400 tokens. Default:... |
 | `token_budget` | integer | No | — | Max tokens for response. Progressively strips content to fit budget. |
 
 ### `nmem_remember_batch`
@@ -132,12 +136,17 @@ Query memories via spreading activation. Use when you need past context, decisio
 | `include_citations` | boolean | No | default: true | Include citation and audit trail in exact recall results (default: true). |
 | `recall_token_budget` | integer | No | — | When set, activates budget-aware fiber selection: ranks fibers by value-per-token and selects the most efficient ones... |
 | `permanent_only` | boolean | No | — | Exclude ephemeral (session-scoped) memories from results. Default: false (include all). |
-| `clean_for_prompt` | boolean | No | — | Return clean bullet-point text without section headers or neuron-type tags. Use when injecting recall output into pro... |
+| `clean_for_prompt` | boolean | No | — | Return clean bullet-point text without section headers or neuron-type tags. Default: true. |
+| `compact` | boolean | No | — | Compact mode: return only core answer + confidence, skip all optional metadata (thought_chains, sources, cognitive_ch... |
 | `tier` | string (`hot`, `warm`, `cold`) | No | — | Filter results by memory tier. Only return memories matching this tier. |
 | `domain` | string | No | — | Domain scope filter. When set, HOT context injection only includes boundaries tagged with this domain (plus unscoped ... |
 | `as_of` | string | No | — | ISO datetime for time-travel recall. Returns only memories that existed at that point in time (created_at <= as_of) a... |
 | `simhash_threshold` | integer | No | — | SimHash pre-filter Hamming distance cutoff. Neurons with content_hash farther than this threshold from the query hash... |
-| `compact` | boolean | No | — | Return compact response (strip metadata hints, truncate lists). Saves 60-80% tokens. |
+| `min_arousal` | number | No | — | Filter: only return memories with arousal (emotional intensity) >= this value. Arousal is detected at encoding time (... |
+| `valence` | string (`positive`, `negative`, `neutral`) | No | — | Filter: only return memories with this emotional valence. Valence is detected at encoding via sentiment analysis. Use... |
+| `layer` | string (`auto`, `project`, `global`) | No | — | Layer scope: 'auto' (default) merges project + global brains, 'project' restricts to current brain only, 'global' que... |
+| `exclude_reflexes` | boolean | No | — | Exclude reflex (always-on) neurons from this recall. Default: false. |
+| `include_paths` | boolean | No | — | Include activation paths (thought chains) showing how each neuron was reached. Returns top-5 paths with neuron conten... |
 | `token_budget` | integer | No | — | Max tokens for response. Progressively strips content to fit budget. |
 
 ### `nmem_show`
@@ -699,6 +708,18 @@ Detect and resolve conflicting memories. Pre-check new content for contradiction
 
 ## Other {#other}
 
+### `nmem_reflex`
+
+Pin/unpin neurons as reflexes (always-on in every recall). Reflexes bypass spreading activation and appear first in context. Use for critical rules, preferences, or constraints that must always be present.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `action` | string (`pin`, `unpin`, `list`) | No | — | Action: pin neuron as reflex, unpin to remove, or list all reflexes |
+| `neuron_id` | string | No | — | Neuron ID to pin or unpin (required for pin/unpin, ignored for list) |
+| `limit` | integer | No | default: 20, max: 50 | Max results for list action (default: 20, max: 50) |
+| `compact` | boolean | No | — | Return compact response (strip metadata hints, truncate lists). Saves 60-80% tokens. |
+| `token_budget` | integer | No | — | Max tokens for response. Progressively strips content to fit budget. |
+
 ### `nmem_visualize`
 
 Generate charts from memory data (Vega-Lite/markdown/ASCII). Use for financial metrics, trends, or any structured data in memories.
@@ -755,8 +776,9 @@ Manage memory lifecycle: view compression states, freeze/thaw individual memorie
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | string (`status`, `recover`, `freeze`, `thaw`) | Yes | — | status=show lifecycle distribution, recover=rehydrate compressed memory, freeze=prevent compression, thaw=resume norm... |
+| `action` | string (`status`, `recover`, `freeze`, `thaw`, `at_risk`) | Yes | — | status=show lifecycle distribution, recover=rehydrate compressed memory, freeze=prevent compression, thaw=resume norm... |
 | `id` | string | No | — | Neuron ID (required for recover/freeze/thaw). For recover, fiber_id is also accepted. |
+| `within_days` | integer | No | default: 7 | For at_risk: number of days to look ahead for expiring memories (default: 7). |
 | `compact` | boolean | No | — | Return compact response (strip metadata hints, truncate lists). Saves 60-80% tokens. |
 | `token_budget` | integer | No | — | Max tokens for response. Progressively strips content to fit budget. |
 
@@ -834,12 +856,14 @@ Brain growth milestones (100, 250, 500...10K neurons). Check for new achievement
 
 ### `nmem_store`
 
-Brain Store — browse, preview, import, and export community knowledge brains. Share curated brains with the community or import others' expertise.
+Brain Store — browse, preview, import, export, and delete knowledge brains. Share curated brains with the community or import others' expertise.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | string (`browse`, `preview`, `import`, `export`, `publish`) | Yes | — | browse=search community brain registry, preview=view brain details before import, import=download and import a brain,... |
+| `action` | string (`browse`, `preview`, `import`, `export`, `publish`, `delete`) | Yes | — | browse=search community brain registry, preview=view brain details before import, import=download and import a brain,... |
 | `brain_name` | string | No | — | Brain name in registry (required for preview/import) |
+| `brain_id` | string | No | — | Local brain ID to delete (required for delete action) |
+| `confirm` | boolean | No | — | Must be true to actually delete. Without it, returns a preview of what would be deleted. |
 | `search` | string | No | — | Search query for browse (matches name, description, tags) |
 | `category` | string (`programming`, `devops`, `writing`, `science`, `personal`, `security`, `data`, `design`, `general`) | No | — | Filter by category (browse) or set category (export) |
 | `tag` | string | No | — | Filter by tag (browse only) |
@@ -853,6 +877,45 @@ Brain Store — browse, preview, import, and export community knowledge brains. 
 | `compact` | boolean | No | — | Return compact response (strip metadata hints, truncate lists). Saves 60-80% tokens. |
 | `token_budget` | integer | No | — | Max tokens for response. Progressively strips content to fit budget. |
 
+### `nmem_goal`
+
+Goal-directed recall — manage active goals that bias memory retrieval toward relevant context. Active goals make recall relevance-based (proximity to goal) instead of just similarity-based.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `action` | string (`create`, `list`, `subgoals`, `activate`, `pause`, `complete`) | Yes | — | create=new goal, list=show goals, subgoals=list children of a goal, activate/pause/complete=change state |
+| `goal` | string | No | — | Goal description (required for create). e.g. 'optimize API latency for sync-hub' |
+| `goal_id` | string | No | — | Goal ID (required for activate/pause/complete/subgoals) |
+| `priority` | integer | No | — | Goal priority 1-10 (default 5). Higher = stronger recall boost |
+| `parent_goal_id` | string | No | — | Parent goal ID (create only). Makes this a subgoal that inherits parent priority boost |
+| `keywords` | array[string] | No | — | Keywords for topic EMA seeding (auto-extracted if omitted) |
+| `state` | string (`active`, `paused`, `completed`) | No | — | Filter by state (list only) |
+| `compact` | boolean | No | — | Return compact response (strip metadata hints, truncate lists). Saves 60-80% tokens. |
+| `token_budget` | integer | No | — | Max tokens for response. Progressively strips content to fit budget. |
+
+### `nmem_causal`
+
+Trace causal chains and temporal event sequences through the memory graph. Use 'trace' to follow CAUSED_BY/LEADS_TO synapses, 'sequence' to follow BEFORE/AFTER temporal order.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `action` | string (`trace`, `sequence`) | Yes | — | trace=follow causal synapses (CAUSED_BY/LEADS_TO), sequence=follow temporal synapses (BEFORE/AFTER) |
+| `neuron_id` | string | Yes | — | Starting neuron ID for traversal |
+| `direction` | string | No | — | For trace: 'causes' (what caused this) or 'effects' (what this caused). For sequence: 'forward' (what happened next) ... |
+| `max_depth` | integer | No | default: 5 | Maximum traversal depth (default: 5) |
+| `compact` | boolean | No | — | Return compact response (strip metadata hints, truncate lists). Saves 60-80% tokens. |
+| `token_budget` | integer | No | — | Max tokens for response. Progressively strips content to fit budget. |
+
+### `nmem_cache`
+
+Manage activation cache for warm-start recall. Cache saves neuron activation states at session end for faster recall on restart. Auto-saved on MCP shutdown, auto-loaded on startup. Use status to check hit rate.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `action` | string (`status`, `clear`, `save`, `load`) | Yes | — | status=show cache stats (hit rate, entries, age), clear=invalidate cache (use after brain modifications), save=force ... |
+| `compact` | boolean | No | — | Return compact response (strip metadata hints, truncate lists). Saves 60-80% tokens. |
+| `token_budget` | integer | No | — | Max tokens for response. Progressively strips content to fit budget. |
+
 ---
 
-*Auto-generated by `scripts/gen_mcp_docs.py` from `tool_schemas.py` — 56 tools.*
+*Auto-generated by `scripts/gen_mcp_docs.py` from `tool_schemas.py` — 60 tools.*

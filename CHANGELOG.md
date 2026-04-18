@@ -5,6 +5,248 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.51.0] — 2026-04-18
+
+### Added
+
+- **Living Brain 3D (Pro)**: new dashboard visualization — interactive 3D brain graph where neurons sit inside a translucent brain shell, clustered by cortical zone. Built on `@react-three/fiber` + `@react-three/drei` + `d3-force-3d`. Routes: `/living-brain`, with `ModeToggle` to switch between 2D Sigma and 3D.
+- **Interactivity**: click-to-inspect `NodeDetailPanel` (neighbors, connections, ID), keyboard navigation (`ArrowRight`/`Left`/`Up`/`Down` walk the graph via `useKeyboardNav`), `?focus=<id>` deep-link two-way binding (`useFocusDeepLink`), hover + selection highlight with proximity lerp.
+- **Activation stream**: client-side simulation of "living" brain pulses — delta pulses on layout change + ambient degree-weighted pulses every ~2.5s (±25% jitter). Pulses ride the r3f `frameloop="demand"` via kick-tick invalidation. Reduced-motion users see a still brain.
+- **Stats HUD**: bottom-left neuron / synapse / active / pulses count with `useCountUp` ease-out-cubic animation, tabular-nums monospace.
+- **Pro gate**: free users see a Pro upsell card; `useLivingBrain` + `useActivationStream` never mount for non-Pro users (no `/api/graph` fetch, no background timers).
+- **Share PNG**: `ShareBrain` exports the canvas as a watermarked PNG (1920px max-edge cap, "Neural Memory" watermark, `preserveDrawingBuffer: true` + imperative `gl.render` before `toBlob` so the buffer isn't stale).
+- **Settings drawer**: toggles for effects / brain shell / activation pulse / labels. Zustand `persist` with `version: 1` + `localStorage` key `nm.livingBrain.settings`. Click-outside + Esc dismissal, focus return to trigger.
+- **i18n**: full EN + VI parity for all Living Brain strings (stats, settings, share, upsell, error).
+
+### Improved
+
+- **P3 review fixes** (interactivity phase): SynapseEdges geometry disposal via `key={edges.length}`, dead `?focus=` URL cleanup when layout doesn't know the id, dead-selection clear on layout swap, `onPointerLeave` belt-and-braces for hover clear, focus restore on detail panel close, sphere tessellation bumped to `[1, 16, 16]`.
+- **P4 review fixes** (live phase): Pro gate leak plugged (hooks only mount for Pro), disable-pulse repaints cleared state via kick-tick, share export forces a fresh render via `RendererRegistrar` before reading pixels, `revokeObjectURL` deferred to avoid Firefox/Safari download cancel, `useCountUp` interrupt-safe (starts new tween from live display, not stale start), settings drawer focus management, `AutoRotate` gated by effects setting so the demand frameloop truly idles.
+
+### Tests
+
+- No new Python tests (pure frontend feature). Dashboard chunk 1.03 MB / 279 kB gz, lazy-loaded so non-Pro pages stay trim.
+
+## [4.50.0] — 2026-04-18
+
+### Added
+
+- **Sparse Selective Restore (SSC-lite)**: warm-start recall now ranks cached neurons by query cosine similarity and keeps only the top-K (K=20) most relevant. Stale warm activations no longer pollute recall.
+- **Cache invalidation**: new `InvalidationTracker` + `apply_invalidation` pipeline. Partial invalidation drops only dirty neurons; full invalidation triggers on consolidation or ≥25% dirty ratio; `detect_staleness` compares brain hashes.
+- **`cache/selector.py`**: reusable cosine-ranking utility with activation-ranked fallback, bounded storage concurrency (semaphore=20), dimension-mismatch warning.
+- **`cache/invalidation.py`**: event-driven change accumulator (neuron_add, neuron_delete, synapse_change, consolidation) + immutable `remove_neurons` transform.
+
+### Improved
+
+- **`ActivationCacheManager.get_warm_activations_selective`**: bounds-clamped API (`top_k` to `[1, max_entries]`, `min_similarity` to `[-1.0, 1.0]`) per project convention.
+- **Warm-start wiring**: `recall_handler` now uses SSC-lite instead of returning all cached neurons; exception path logs instead of silently swallowing.
+- **Encapsulation**: `_replace_cache()` method added to manager — invalidation module no longer writes `manager._loaded_cache` directly.
+
+### Tests
+
+- 33 new Phase 3 tests covering selector ranking, fallbacks, dimension mismatch, invalidation tracker, partial/full invalidation, hash-based staleness detection, bounds clamping, and the integration contract (`ReflexPipeline._embedding_provider` exists).
+- 61 total activation-cache tests pass (28 Phase 1-2 + 33 Phase 3).
+
+## [4.49.0] — 2026-04-15
+
+### Added
+
+- **Negation conflict detection**: detects contradictions like "we use Redis" vs "we do NOT use Redis" — new `NEGATION_CONFLICT` type with 11 negation patterns (not, never, stopped, no longer, removed, disabled, dropped, deprecated, don't, won't, no)
+- **Temporal supersession**: conflicts are now classified as `SUPERSEDED` (>24h gap), `SAME_SESSION_CORRECTION` (<1h), or `TRUE_CONTRADICTION` — superseded conflicts auto-resolve as keep_new
+- **Entity matching**: tech term extraction via CamelCase/kebab-case/acronym regex + alias normalization (postgres→postgresql, k8s→kubernetes, mongo→mongodb)
+- **Multi-factor tier promotion** (v4.48): composite score `0.4*recency + 0.3*frequency + 0.2*importance + 0.1*causal` replaces single access_frequency threshold
+- **Power-law memory decay** (v4.48): `S(t) = (t+1)^(-b)` for frequently accessed memories, hyperbolic fallback for cold-start
+- **SM-2 spaced repetition** (v4.48): ease_factor (1.3-3.0) adjusts per-item difficulty, graduated failure (drop 1-2 boxes vs hard reset)
+
+### Improved
+
+- **Conflict MCP responses**: `nmem_conflicts list` and `check` now include `temporal_classification` field
+- **CONTRADICTS synapse metadata**: includes temporal classification for audit trail
+- **Subject matching**: now normalizes tech aliases before comparison (PostgreSQL = Postgres = pg)
+
+### Tests
+
+- 16 new conflict tests: negation (5), temporal (5), entity matching (4), auto-resolve supersession (2)
+- 59 total conflict detection tests pass
+
+## [4.48.0] — 2026-04-15
+
+### Added
+
+- **Explainable recall**: activation paths now surfaced to MCP via `include_paths` parameter — hop-by-hop gain scores visible in recall responses
+- **FalkorDB removed**: ~3,900 LOC deleted — consolidates on SQLite (default) + PostgreSQL (opt-in) + InfinityDB (Pro)
+
+### Improved
+
+- **CI compatibility**: all GitHub Actions bumped to Node.js 24 compatible versions (checkout v5, setup-python v6, etc.)
+- **Schema v39**: migration adds `ease_factor` column to review_schedules table
+
+## [4.47.0] — 2026-04-15
+
+### Added
+
+- **Compact response mode**: `remember` and `recall` default to `compact=true`, returning only essential fields (saves 200-800 tokens per call). Set `compact=false` for full metadata
+- **Empty brain early exit**: `recall` skips the full pipeline when brain has 0 neurons — eliminates 8+ async ops for new users
+- **SimHash always-on dedup** (v4.46.1): zero-cost SimHash dedup runs on every `remember`, even when full dedup is disabled
+- **Stem-based keyword matching** (v4.46.1): cross-inflection matching in context compiler ("optimizing" ↔ "optimization")
+
+### Improved
+
+- **`clean_for_prompt` default changed**: `true` (was `false`) — recall responses skip section headers and type tags by default
+- **Activation threshold raised**: `0.2` → `0.3` across all backends and presets — reduces noise, fewer weak activations waste tokens
+- **Composite score rebalanced** (v4.46.1): activation 25% + priority 25% + frequency 20% + conductivity 15% + freshness 15%
+- **Freshness weight enabled** (v4.46.1): default `0.15` (was `0.0`) — stale memories naturally deprioritized
+- **BALANCED preset activation threshold**: `0.2` → `0.3` to match new defaults
+
+### Docs
+
+- **Tool count corrected**: 55/56 → 59 across README, quickstart, npm-package
+- **Neo4j → FalkorDB**: updated outdated storage references in installation.md and FAQ.md
+- **Init contradiction resolved**: removed misleading `nmem init --full` from README (MCP auto-initializes)
+- **Troubleshooting decision tree**: added to FAQ.md for common issues
+- **"First 5 Minutes" onboarding**: added realistic MCP workflow to quickstart.md
+
+### Tests
+
+- 6717 unit tests pass, 0 failures
+
+## [4.46.0] — 2026-04-14
+
+### Added
+
+- **Brain Store delete**: new `delete` action in `nmem_store` MCP tool — preview what would be deleted, then confirm to permanently remove a brain and all associated data
+- **PostgreSQL storage switch (CLI)**: `nmem storage switch postgres` validates config and tests connection before switching
+- **PostgreSQL storage switch (Dashboard)**: extended storage status, backend switch, and migration API endpoints to support postgres
+- **Connection test endpoint**: `POST /api/dashboard/storage/test-connection` for testing PostgreSQL connectivity from the dashboard
+- **PostgreSQL migration**: dashboard migration pipeline now supports `to_postgres` direction via export/import snapshot
+
+### Fixed
+
+- **Brain delete orphans**: `clear()` now deletes from all 12 brain-scoped tables (was missing `brain_versions`, `sync_states`, `alerts`, `change_log`, `devices`, `merkle_hashes`)
+- **Brain delete atomicity**: `clear()` wrapped in a transaction — partial failures now roll back cleanly
+- **Migration source selection**: migration task now reads current backend from config instead of inferring from direction (fixes postgres→sqlite path)
+- **Credential leak prevention**: PostgreSQL connection errors in HTTP responses sanitized — no password exposure, details logged server-side only
+
+## [4.45.2] — 2026-04-13
+
+### Fixed
+
+- **SQLite concurrency**: `busy_timeout` increased 5s→30s across all connection types (store, dialect, read pool) to handle multi-process contention
+- **MCP tool retry**: automatic retry with exponential backoff (3 attempts) on "database is locked" errors during tool calls
+- **Consolidation resilience**: gracefully skip fiber merges on FK violations instead of crashing the entire consolidation run
+- **Brain import**: support `.brain` package format with auto-detection, robust handling of missing fields (`brain_id`, `exported_at`, `version`)
+- **Consolidation scheduler**: lambda now correctly binds `MaintenanceConfig` instead of calling with no args
+- **Dashboard store UI**: improved text contrast — `muted-foreground` was too dim in dark mode
+
+### Removed
+
+- **Companion setup guide**: removed unrelated Vibe Companion docs from Neural Memory documentation
+
+## [4.45.1] — 2026-04-12
+
+### Fixed
+
+- **Brain Store import**: `validate_brain_package()` no longer requires `content_hash` in manifest — registry-hosted community brains were being rejected because hash is only computed at export time
+- **MCP docs**: regenerated for `nmem_reflex` tool (CI docs freshness gate)
+
+## [4.45.0] — 2026-04-12
+
+### Added
+
+- **Reflex Arc**: always-on neurons pinned via `_reflex` metadata flag, injected into every recall context before spreading activation. SimHash conflict detection (hamming ≤ 10) auto-supersedes old reflexes via SUPERSEDES synapse. MCP tool `nmem_reflex` (pin/unpin/list), max 20 per brain, `exclude_reflexes` param on `nmem_recall`
+- **Thought Chains**: `include_paths` param on `nmem_recall` exposes existing activation paths — returns top-5 neurons with activation scores showing how each result was reached. Zero new modules, reuses `ActivationResult` data
+- **Déjà Vu**: scar tissue detection extending `PredictionErrorStep`. Finds SimHash-similar neurons (hamming ≤ 12) participating in causal chains (`caused_by`/`leads_to`/`resolved_by` synapses). Warnings surfaced in `nmem_remember` response as `deja_vu_warnings`
+
+### Tests
+
+- 42 new tests: reflex arc (25), reflex MCP (12), déjà vu detection (7), déjà vu pipeline integration (2), thought chains (covered via existing recall tests)
+- MCP tool count: 58 → 59 (`nmem_reflex`)
+
+## [4.44.0] — 2026-04-11
+
+### Added
+
+- **Engine**: abstraction constraints — level-gated spreading activation prevents low-abstraction nodes from activating high-abstraction concepts
+- **Engine**: context compiler — cross-fiber deduplication, merge, and query re-scoring for tighter recall windows
+- **Engine**: hybrid retrieval fusion — tri-modal scoring combining graph spreading activation, semantic (vector), and lexical (BM25) signals
+- **Engine**: depth gap features — ACL per-neuron access control, confidence scores, preference/temporal/role query filters, scheduler, goal hierarchy
+- **Embedding**: hybrid vector retrieval for SQLite — HNSW sidecar index, `VectorSearchMixin`, `EmbeddingStep` pipeline integration
+- **Benchmark**: LongMemEval benchmark suite — evaluation scripts for long-horizon memory recall quality
+- **Sync Hub**: teams schema, queries, routes, and types for multi-user organization support
+
+### Distribution
+
+- **OpenClaw**: bumped plugin to 1.16.1
+- **npm MCP**: added `publish-npm-mcp` CI job for automated npm wrapper publishing
+
+## [4.43.0] — 2026-04-09
+
+### Improved
+
+- **Goal proximity × prediction error compound** — memories that are both surprising (high prediction error) and near active goals now receive an amplified boost (`1 + surprise * 0.3`), making unexpected goal-relevant information surface more strongly
+- **Causal auto-inclusion dedup** — `gather_causal_context()` now excludes neuron IDs already present in matched fibers, preventing duplicate content when temporal binding and causal tracing surface the same neurons
+- **Schema-cluster diversity in MMR** — when schema assimilation is enabled, the greedy MMR loop now caps fibers per schema cluster (same cap as lifecycle strata), preventing a single knowledge schema from dominating recall results
+- **Interference goal tiebreaker** — `resolve_interference()` accepts `goal_neuron_ids`; goal-relevant neurons receive halved weight decay during retroactive interference resolution (0.975 vs 0.95), preserving goal-relevant memories under competition
+
+### Fixed
+
+- **4 integration debts resolved** — all cross-feature gaps from Section 9 of FEATURE_REGISTRY.md now marked FIXED (goal×prediction, causal dedup, schema→MMR, interference+goal)
+
+## [4.42.0] — 2026-04-09
+
+### Added
+
+- **Causal auto-inclusion** — recalled memories with CAUSED_BY/LEADS_TO synapses automatically include their causal chain as supporting context. Traces both causes and effects (max 2 hops), deduplicates across fibers, and respects a 20% token budget cap
+- **Anti-redundancy attention set** — session-scoped tracking of surfaced fiber IDs (FIFO@500 with O(1) lookup). Previously surfaced fibers receive a 0.3x multiplicative penalty on repeat queries, preventing the same memories from dominating every recall
+- **Cascade staleness propagation** — when a fact is superseded via conflict resolution, downstream causal neurons and their fibers are automatically marked stale via BFS through LEADS_TO synapses (weight-gated, max 3 hops). Respects `cascade_staleness_enabled` config flag
+- **Stratum-aware MMR diversity** — recall results now span multiple lifecycle stages (episodic/consolidating/semantic/archival) with a 40% cap per stratum, preventing any single memory layer from dominating results
+- **Temporal neighborhood queries** — `query_temporal_neighborhood(fiber_id, window_hours)` finds chronologically adjacent memories within a configurable time window
+
+### Improved
+
+- **Session state eager creation** — `get_or_create()` used instead of `get()` for session state in retrieval pipeline, ensuring anti-redundancy works from the very first query
+- **Familiarity path records surfaced fibers** — early-exit via familiarity fallback now properly records matched fibers in the attention set
+- **Causal supplement dedup** — `format_causal_supplement()` deduplicates neurons across chains to prevent repeated content in output
+
+### Tests
+
+- 36 new tests: causal inclusion (8), anti-redundancy attention set (7), causal recall integration (8), cascade invalidation (3), stratum MMR config (5), temporal neighborhood (5)
+
+## [4.41.0] — 2026-04-09
+
+### Added
+
+- **Goal-directed recall** — prefrontal cortex-style top-down attention modulation. Agents can declare active goals (`nmem_goal`), and memories topologically close to those goals get a BFS proximity boost during retrieval. Recall becomes relevance-based (proximity to goal) instead of just similarity-based
+- **Session intent declaration** — `nmem_session(action="set", intent="...")` seeds topic EMA with strong 0.6 alpha boost, priming all subsequent recalls toward the declared intent. Pending intent propagates to new sessions automatically
+- **New MCP tool: `nmem_goal`** — create, list, activate, pause, complete goals with priority 1-10. Goals are metadata-backed on existing INTENT neurons (zero schema migration)
+
+### Improved
+
+- **Goal proximity in all recall paths** — goal scoring applied consistently across main pipeline + familiarity fallback strategies A and B
+- **BFS capped at 10 goals** to prevent unbounded graph traversal in large brains
+- **EMA seed capped at 1.0** to prevent double-seeding from repeated intent declarations
+
+### Tests
+
+- 17 new tests for BFS proximity scoring (linear chains, branching, cycles, multi-goal), goal neuron helpers, intent seeding, and edge cases
+
+## [4.40.0] — 2026-04-08
+
+### Added
+
+- **Grounded neurons** — canonical truth anchors inspired by hippocampal reference frames. Grounded neurons resist decay in lifecycle, auto-win conflicts in auto-resolve (Rule 0), and skip conflict resolution entirely. Metadata-backed (`_grounded`, `_confidence`) for zero-migration compatibility across all storage backends
+- **Pin-to-ground wiring** — `nmem_pin` now automatically grounds anchor neurons when pinning (sets `grounded=True`, `confidence=1.0`) and ungrounds when unpinning
+
+### Tests
+
+- 10 new tests for grounded neuron model properties, conflict auto-resolve Rule 0, and pin grounding behavior
+
+## [4.39.0] — 2026-04-08
+
+### Added
+
+- **Embedding enabled by default** — `embedding_enabled` now defaults to `True`, enabling semantic similarity search, hybrid recall, and semantic discovery out of the box. Graceful fallback if sentence-transformers is not installed
+
 ## [4.38.0] — 2026-04-08
 
 ### Added
