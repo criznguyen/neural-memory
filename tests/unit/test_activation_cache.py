@@ -329,7 +329,7 @@ class TestSerializer:
 
     def test_path_traversal_sanitized(self) -> None:
         """Test that path traversal attempts are sanitized."""
-        from neural_memory.cache.serializer import _sanitize_brain_name, _get_cache_path
+        from neural_memory.cache.serializer import _get_cache_path, _sanitize_brain_name
 
         # Test sanitization function
         assert _sanitize_brain_name("../../etc/passwd") == "____etc_passwd"
@@ -337,9 +337,77 @@ class TestSerializer:
         assert _sanitize_brain_name("normal_brain") == "normal_brain"
         assert _sanitize_brain_name("") == "default"
 
+        # BUG 3: null bytes must be stripped
+        assert "\x00" not in _sanitize_brain_name("brain\x00evil")
+
         # Test that _get_cache_path stays within data_dir
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = Path(tmpdir)
             # Should not raise — sanitized path stays within data_dir
             path = _get_cache_path("../../etc/passwd", data_dir)
             assert path.is_relative_to(data_dir)
+
+    def test_load_with_corrupt_entries(self) -> None:
+        """BUG 2: from_dict must skip non-dict entries, not crash."""
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            cache_path = data_dir / "corrupt_entries.activation.cache"
+            # Mix of valid dict, None, string, int
+            payload = {
+                "brain_id": "b1",
+                "brain_name": "corrupt_entries",
+                "cached_at": "2026-01-01T12:00:00",
+                "ttl_hours": 24,
+                "entries": [
+                    {"neuron_id": "n1", "activation_level": 0.9},
+                    None,
+                    "not a dict",
+                    42,
+                    {"neuron_id": "n2", "activation_level": 0.5},
+                ],
+                "brain_hash": "",
+            }
+            cache_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            loaded = load_cache("corrupt_entries", data_dir)
+            assert loaded is not None
+            # Only valid dict entries are kept
+            assert loaded.entry_count == 2
+
+
+class TestBugRegressions:
+    """Regression tests for bugs found during review."""
+
+    def test_ttl_zero_is_expired(self) -> None:
+        """BUG 5: ttl_hours=0 should mark cache as expired immediately."""
+        now = datetime(2026, 1, 1, 12, 0, 0)
+        cache = ActivationCache(brain_id="b1", brain_name="t", cached_at=now, ttl_hours=0)
+        assert cache.is_expired(now)
+
+    def test_ttl_negative_is_expired(self) -> None:
+        """BUG 5: negative ttl_hours should mark cache as expired."""
+        now = datetime(2026, 1, 1, 12, 0, 0)
+        cache = ActivationCache(brain_id="b1", brain_name="t", cached_at=now, ttl_hours=-5)
+        assert cache.is_expired(now)
+
+    def test_backward_clock_skew_expires(self) -> None:
+        """BUG 6: cached_at in the future (clock skew) must not be immortal."""
+        now = datetime(2026, 1, 1, 12, 0, 0)
+        future = datetime(2026, 1, 2, 12, 0, 0)  # cached_at > now
+        cache = ActivationCache(brain_id="b1", brain_name="t", cached_at=future, ttl_hours=24)
+        assert cache.is_expired(now)
+
+    def test_manager_clamps_invalid_ttl(self) -> None:
+        """BUG 5: manager must clamp ttl_hours < 1 to 1."""
+        from unittest.mock import MagicMock
+
+        from neural_memory.cache.manager import ActivationCacheManager
+
+        storage = MagicMock()
+        mgr = ActivationCacheManager(storage, ttl_hours=0)
+        assert mgr._ttl_hours == 1
+
+        mgr = ActivationCacheManager(storage, ttl_hours=-10)
+        assert mgr._ttl_hours == 1

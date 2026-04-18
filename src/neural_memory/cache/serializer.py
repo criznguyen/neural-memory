@@ -29,12 +29,11 @@ except ImportError:
 def _sanitize_brain_name(brain_name: str) -> str:
     """Sanitize brain name to prevent path traversal.
 
-    Removes path separators and parent directory references.
+    Removes path separators, parent directory references, and null bytes.
     """
-    # Remove path separators and dangerous patterns
     sanitized = brain_name.replace("/", "_").replace("\\", "_")
     sanitized = sanitized.replace("..", "_")
-    # Take only the basename if somehow a path got through
+    sanitized = sanitized.replace("\x00", "_")
     sanitized = Path(sanitized).name
     return sanitized or "default"
 
@@ -137,7 +136,7 @@ def load_cache(
         logger.debug("Loaded activation cache from %s (json)", path)
         return ActivationCache.from_dict(data)
 
-    except (json.JSONDecodeError, KeyError, ValueError) as e:
+    except (json.JSONDecodeError, KeyError, ValueError, AttributeError, TypeError) as e:
         logger.warning("Failed to load activation cache: %s", e)
         return None
 

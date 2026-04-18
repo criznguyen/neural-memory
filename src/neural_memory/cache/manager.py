@@ -68,7 +68,9 @@ class ActivationCacheManager:
         self._storage = storage
         self._data_dir = data_dir
         self._max_entries = max_entries
-        self._ttl_hours = ttl_hours
+        self._ttl_hours = max(1, ttl_hours)
+        if ttl_hours < 1:
+            logger.warning("ActivationCacheManager ttl_hours=%d invalid, clamping to 1", ttl_hours)
         self._min_activation = min_activation
         self._loaded_cache: ActivationCache | None = None
         self._hit_count = 0
@@ -81,13 +83,25 @@ class ActivationCacheManager:
 
     @property
     def brain_name(self) -> str:
-        """Get current brain name from storage."""
+        """Get last-known brain name from cache (sync).
+
+        Prefer `_resolve_brain_name()` in async contexts — it fetches
+        authoritative name from storage and is consistent with save/load.
+        """
+        if self._loaded_cache is not None:
+            return self._loaded_cache.brain_name
         brain_id = self.brain_id
         if not brain_id:
             return "default"
-        # Try to get brain name from storage
-        # This is sync access to cached brain info
         return getattr(self._storage, "_brain_name", None) or "default"
+
+    async def _resolve_brain_name(self) -> str:
+        """Resolve brain name via storage.get_brain (authoritative, async)."""
+        brain_id = self.brain_id
+        if not brain_id:
+            return "default"
+        brain = await self._storage.get_brain(brain_id)
+        return brain.name if brain else "default"
 
     async def save_snapshot(self) -> ActivationCache | None:
         """Save current activation states to cache.
@@ -103,8 +117,7 @@ class ActivationCacheManager:
             return None
 
         try:
-            brain = await self._storage.get_brain(brain_id)
-            brain_name = brain.name if brain else "default"
+            brain_name = await self._resolve_brain_name()
 
             # Get all neuron states
             all_states = await self._get_top_states()
@@ -152,8 +165,7 @@ class ActivationCacheManager:
             self._miss_count += 1
             return []
 
-        brain = await self._storage.get_brain(brain_id)
-        brain_name = brain.name if brain else "default"
+        brain_name = await self._resolve_brain_name()
 
         cache = load_cache(brain_name, self._data_dir)
         if cache is None:
@@ -192,6 +204,60 @@ class ActivationCacheManager:
             return False
         return not self._loaded_cache.is_expired()
 
+    def get_warm_activations(self) -> dict[str, float]:
+        """Return loaded cache as {neuron_id: activation_level} for warm-start.
+
+        Empty dict if cache is missing or expired.
+        """
+        if self._loaded_cache is None or self._loaded_cache.is_expired():
+            return {}
+        return {e.neuron_id: e.activation_level for e in self._loaded_cache.entries}
+
+    async def get_warm_activations_selective(
+        self,
+        query: str,
+        embedding_provider: Any | None,
+        top_k: int = 20,
+        min_similarity: float = 0.3,
+    ) -> dict[str, float]:
+        """Return top-K warm activations ranked by query relevance.
+
+        Uses SSC-lite: embeds the query, cosine-ranks cached neurons, keeps
+        the top-K. Falls back to activation-ranked top-K when ranking is
+        unavailable.
+
+        Args:
+            query: User recall query
+            embedding_provider: Active embedding provider (may be None)
+            top_k: Max entries to return (clamped to [1, max_entries])
+            min_similarity: Cosine threshold (clamped to [-1.0, 1.0])
+
+        Returns:
+            Dict of {neuron_id: activation_level}, empty when cache is invalid.
+        """
+        if self._loaded_cache is None or self._loaded_cache.is_expired():
+            return {}
+
+        # Bounds check at the manager boundary (project convention).
+        top_k = max(1, min(int(top_k), self._max_entries))
+        min_similarity = max(-1.0, min(float(min_similarity), 1.0))
+
+        from neural_memory.cache.selector import select_relevant, warm_activations_from_states
+
+        selected = await select_relevant(
+            cached_states=list(self._loaded_cache.entries),
+            query=query,
+            embedding_provider=embedding_provider,
+            storage=self._storage,
+            top_k=top_k,
+            min_similarity=min_similarity,
+        )
+        return warm_activations_from_states(selected)
+
+    def _replace_cache(self, cache: ActivationCache | None) -> None:
+        """Swap loaded cache reference (internal — used by invalidation module)."""
+        self._loaded_cache = cache
+
     def get_cached_state(self, neuron_id: str) -> CachedState | None:
         """Get cached state for a neuron.
 
@@ -220,17 +286,19 @@ class ActivationCacheManager:
         Returns:
             True if cache was deleted
         """
+        brain_name = await self._resolve_brain_name()
         self._loaded_cache = None
-        return delete_cache(self.brain_name, self._data_dir)
+        return delete_cache(brain_name, self._data_dir)
 
-    def get_stats(self) -> dict[str, Any]:
-        """Get cache statistics.
+    async def get_stats(self) -> dict[str, Any]:
+        """Get cache statistics (async — resolves brain_name authoritatively).
 
         Returns:
             Dict with hit_count, miss_count, hit_rate, entries, age_seconds
         """
         total = self._hit_count + self._miss_count
         hit_rate = self._hit_count / total if total > 0 else 0.0
+        brain_name = await self._resolve_brain_name()
 
         stats: dict[str, Any] = {
             "hit_count": self._hit_count,
@@ -238,8 +306,8 @@ class ActivationCacheManager:
             "hit_rate": round(hit_rate, 3),
             "entries": 0,
             "age_seconds": 0,
-            "brain_name": self.brain_name,
-            "cache_exists": cache_exists(self.brain_name, self._data_dir),
+            "brain_name": brain_name,
+            "cache_exists": cache_exists(brain_name, self._data_dir),
         }
 
         if self._loaded_cache:
@@ -280,8 +348,9 @@ class ActivationCacheManager:
     async def _compute_brain_hash(self) -> str:
         """Compute hash of brain state for staleness detection.
 
-        Uses neuron count + synapse count + fiber count + last modified timestamp.
-        This provides reasonable staleness detection for most operations.
+        Primary signal: counts + last_modified. When last_modified is
+        unavailable, samples recent neuron IDs as entropy to detect
+        swap-equal mutations (add+remove of same count).
         """
         brain_id = self.brain_id
         if not brain_id:
@@ -292,11 +361,22 @@ class ActivationCacheManager:
             neuron_count = stats.get("neuron_count", 0)
             synapse_count = stats.get("synapse_count", 0)
             fiber_count = stats.get("fiber_count", 0)
-            # Include last_modified if available for better staleness detection
             last_modified = stats.get("last_modified", "")
 
-            # Hash includes counts + timestamp for better staleness detection
-            data = f"{brain_id}:{neuron_count}:{synapse_count}:{fiber_count}:{last_modified}"
+            parts = [brain_id, str(neuron_count), str(synapse_count), str(fiber_count)]
+            if last_modified:
+                parts.append(str(last_modified))
+            else:
+                # Fallback entropy: sample neuron IDs so swap-equal mutations
+                # (add + delete of equal count) still change the hash. Sort to
+                # keep the hash deterministic regardless of storage row order.
+                try:
+                    sample = await self._storage.find_neurons(limit=20)
+                    parts.extend(sorted(n.id for n in sample))
+                except Exception:
+                    pass
+
+            data = ":".join(parts)
             return hashlib.md5(data.encode()).hexdigest()[:16]
         except Exception:
             return ""

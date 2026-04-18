@@ -68,7 +68,7 @@ class CacheHandler:
 
     async def _cache_status(self, mgr: Any) -> dict[str, Any]:
         """Get cache statistics."""
-        stats = mgr.get_stats()
+        stats = await mgr.get_stats()
         return {
             "status": "ok",
             "brain_name": stats.get("brain_name", ""),

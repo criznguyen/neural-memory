@@ -325,6 +325,25 @@ class RecallHandler:
         exclude_reflexes = bool(args.get("exclude_reflexes", False))
 
         pipeline = ReflexPipeline(storage, brain.config)
+
+        # Warm-start: inject cached activations from prior sessions.
+        # Uses SSC-lite to select only the top-K cached neurons by query
+        # relevance — stale warm levels stay out of the activation boost.
+        warm = getattr(self, "_cache_manager", None)
+        if warm is not None:
+            try:
+                embed_provider = getattr(pipeline, "_embedding_provider", None)
+                if embed_provider is None:
+                    logger.debug("Warm-start: no embedding provider, using activation fallback")
+                cached_map = await warm.get_warm_activations_selective(
+                    query=effective_query,
+                    embedding_provider=embed_provider,
+                )
+                if cached_map:
+                    pipeline.set_warm_activations(cached_map)
+            except Exception:
+                logger.debug("Warm-start SSC-lite failed, proceeding cold", exc_info=True)
+
         result = await pipeline.query(
             query=effective_query,
             depth=depth,

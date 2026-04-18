@@ -169,6 +169,10 @@ class ReflexPipeline:
         self._priming_metrics: collections.OrderedDict[str, Any] = collections.OrderedDict()
         self._max_session_cache = 256
 
+        # Warm-start: cached activation levels from prior sessions (ActivationCache).
+        # Populated via set_warm_activations() at startup.
+        self._warm_activations: dict[str, float] | None = None
+
         # Adaptive depth selection (Bayesian priors)
         self._adaptive_selector: AdaptiveDepthSelector | None = None
         if config.adaptive_depth_enabled:
@@ -178,6 +182,15 @@ class ReflexPipeline:
                 storage,
                 epsilon=config.adaptive_depth_epsilon,
             )
+
+    def set_warm_activations(self, warm: dict[str, float] | None) -> None:
+        """Set warm activation levels for anchor boosting (from ActivationCache).
+
+        Called at startup after loading cache snapshot. Anchors present in
+        `warm` start with elevated initial activation (max of default and cached).
+        Pass None to disable warm-start.
+        """
+        self._warm_activations = warm
 
     def _get_encryptor(self) -> Any:
         """Get cached MemoryEncryptor instance, or None if encryption disabled."""
@@ -511,6 +524,7 @@ class ReflexPipeline:
                 anchor_sets,
                 max_hops=self._depth_to_hops(depth),
                 anchor_activations=anchor_activations,
+                warm_activations=self._warm_activations,
             )
             co_activations = []
         _phase_timings["activation"] = (time.perf_counter() - start_time) * 1000
@@ -1449,6 +1463,7 @@ class ReflexPipeline:
                 anchor_sets,
                 max_hops=self._config.max_spread_hops,
                 anchor_activations=anchor_activations,
+                warm_activations=self._warm_activations,
             )
             return activations, intersections, []
 
@@ -1466,6 +1481,7 @@ class ReflexPipeline:
             anchor_sets,
             max_hops=discovery_hops,
             anchor_activations=anchor_activations,
+            warm_activations=self._warm_activations,
         )
 
         # --- Phase 3: Merge results ---

@@ -92,11 +92,20 @@ class ActivationCache:
         return len(self.entries)
 
     def is_expired(self, now: datetime | None = None) -> bool:
-        """Check if cache has exceeded TTL."""
+        """Check if cache has exceeded TTL.
+
+        Treats ttl_hours <= 0 as immediately expired (invalid config).
+        Treats negative age (backward clock skew) as expired for safety.
+        """
         from neural_memory.utils.timeutils import utcnow
+
+        if self.ttl_hours <= 0:
+            return True
 
         now = now or utcnow()
         age_hours = (now - self.cached_at).total_seconds() / 3600
+        if age_hours < 0:
+            return True
         return age_hours > self.ttl_hours
 
     def get_state(self, neuron_id: str) -> CachedState | None:
@@ -119,12 +128,18 @@ class ActivationCache:
 
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> ActivationCache:
-        """Deserialize from dict."""
+        """Deserialize from dict. Skips corrupt entries rather than crashing."""
         entries_raw = data.get("entries", [])
-        entries_list: list[dict[str, object]] = (
-            list(entries_raw) if isinstance(entries_raw, list) else []
-        )
-        entries = tuple(CachedState.from_dict(e) for e in entries_list)
+        entries_list: list[object] = list(entries_raw) if isinstance(entries_raw, list) else []
+        parsed: list[CachedState] = []
+        for entry in entries_list:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                parsed.append(CachedState.from_dict(entry))
+            except (KeyError, ValueError, TypeError):
+                continue
+        entries = tuple(parsed)
 
         # Parse ttl_hours with type safety
         ttl_raw = data.get("ttl_hours")

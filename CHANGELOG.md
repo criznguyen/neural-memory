@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.50.0] — 2026-04-18
+
+### Added
+
+- **Sparse Selective Restore (SSC-lite)**: warm-start recall now ranks cached neurons by query cosine similarity and keeps only the top-K (K=20) most relevant. Stale warm activations no longer pollute recall.
+- **Cache invalidation**: new `InvalidationTracker` + `apply_invalidation` pipeline. Partial invalidation drops only dirty neurons; full invalidation triggers on consolidation or ≥25% dirty ratio; `detect_staleness` compares brain hashes.
+- **`cache/selector.py`**: reusable cosine-ranking utility with activation-ranked fallback, bounded storage concurrency (semaphore=20), dimension-mismatch warning.
+- **`cache/invalidation.py`**: event-driven change accumulator (neuron_add, neuron_delete, synapse_change, consolidation) + immutable `remove_neurons` transform.
+
+### Improved
+
+- **`ActivationCacheManager.get_warm_activations_selective`**: bounds-clamped API (`top_k` to `[1, max_entries]`, `min_similarity` to `[-1.0, 1.0]`) per project convention.
+- **Warm-start wiring**: `recall_handler` now uses SSC-lite instead of returning all cached neurons; exception path logs instead of silently swallowing.
+- **Encapsulation**: `_replace_cache()` method added to manager — invalidation module no longer writes `manager._loaded_cache` directly.
+
+### Tests
+
+- 33 new Phase 3 tests covering selector ranking, fallbacks, dimension mismatch, invalidation tracker, partial/full invalidation, hash-based staleness detection, bounds clamping, and the integration contract (`ReflexPipeline._embedding_provider` exists).
+- 61 total activation-cache tests pass (28 Phase 1-2 + 33 Phase 3).
+
 ## [4.49.0] — 2026-04-15
 
 ### Added

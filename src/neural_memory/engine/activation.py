@@ -197,6 +197,7 @@ class SpreadingActivation:
         min_activation: float | None = None,
         anchor_activations: dict[str, float] | None = None,
         scope: set[str] | None = None,
+        warm_activations: dict[str, float] | None = None,
     ) -> tuple[dict[str, ActivationResult], ActivationTrace]:
         """
         Spread activation from anchor neurons through the graph.
@@ -218,6 +219,10 @@ class SpreadingActivation:
             scope: Optional set of neuron IDs to constrain activation spreading.
                    When set, only neurons in this set are traversed.
                    Used by hybrid recall to limit activation to HNSW candidates.
+            warm_activations: Optional cached activation levels from prior sessions
+                              (ActivationCache). When an anchor appears here, its
+                              initial level is boosted to max(default, cached) —
+                              frequently-activated neurons start warmer.
 
         Returns:
             Tuple of (dict mapping neuron_id to ActivationResult, ActivationTrace)
@@ -263,6 +268,13 @@ class SpreadingActivation:
             initial_level = (
                 anchor_activations.get(anchor_id, 1.0) if anchor_activations is not None else 1.0
             )
+
+            # Warm-start: boost anchors that were previously active in the cache.
+            # Clamp to 1.0 so we never spread with activation above the normal max.
+            if warm_activations is not None:
+                cached_level = warm_activations.get(anchor_id)
+                if cached_level is not None and cached_level > initial_level:
+                    initial_level = min(1.0, cached_level)
 
             state = ActivationState(
                 neuron_id=anchor_id,
@@ -439,6 +451,7 @@ class SpreadingActivation:
         max_hops: int | None = None,
         anchor_activations: dict[str, float] | None = None,
         scope: set[str] | None = None,
+        warm_activations: dict[str, float] | None = None,
     ) -> tuple[dict[str, ActivationResult], list[str]]:
         """
         Activate from multiple anchor sets and find intersections.
@@ -452,6 +465,9 @@ class SpreadingActivation:
             max_hops: Maximum hops for each activation
             anchor_activations: Optional per-anchor initial activation levels (from RRF).
             scope: Optional set of neuron IDs to constrain spreading.
+            warm_activations: Optional cached activation levels from prior sessions
+                              (ActivationCache). Boosts initial level of anchors
+                              that were previously active.
 
         Returns:
             Tuple of (combined activations, intersection neuron IDs)
@@ -461,7 +477,13 @@ class SpreadingActivation:
 
         # Activate from each set in parallel
         tasks = [
-            self.activate(anchors, max_hops, anchor_activations=anchor_activations, scope=scope)
+            self.activate(
+                anchors,
+                max_hops,
+                anchor_activations=anchor_activations,
+                scope=scope,
+                warm_activations=warm_activations,
+            )
             for anchors in anchor_sets
             if anchors
         ]
