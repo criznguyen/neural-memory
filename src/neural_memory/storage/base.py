@@ -18,12 +18,21 @@ if TYPE_CHECKING:
     from neural_memory.engine.memory_stages import MaturationRecord, MemoryStage
 
 
-class NeuralStorage(ABC):
+class CoreStorage(ABC):
     """
-    Abstract interface for neural graph storage.
+    Core storage interface — minimal abstract surface for a neural graph backend.
 
-    Implementations must provide all methods for storing and
-    retrieving neurons, synapses, fibers, and brain metadata.
+    Covers the essential CRUD + graph operations every backend MUST implement:
+    neurons, neuron states, synapses, graph traversal, fibers, brain metadata,
+    lifecycle, and stats. A new backend only needs to fill in this class
+    (~28 abstract methods) to be usable.
+
+    Extended domains (typed memory, alerts, drift, versioning, sync, etc.)
+    live on :class:`ExtendedStorage` and default to ``NotImplementedError`` —
+    backends override only what they need.
+
+    :class:`NeuralStorage` is the combined interface used everywhere in the
+    codebase — callers stay unchanged.
     """
 
     _current_brain_id: str | None
@@ -754,6 +763,45 @@ class NeuralStorage(ABC):
             Dict with enhanced statistics
         """
         ...
+
+    # ========== Brain Helpers ==========
+
+    def _get_brain_id(self) -> str:
+        """Return current brain ID, raising ValueError if not set."""
+        raise NotImplementedError
+
+    # ========== Cleanup ==========
+
+    @abstractmethod
+    async def clear(self, brain_id: str) -> None:
+        """
+        Clear all data for a brain.
+
+        Args:
+            brain_id: The brain ID to clear
+        """
+        ...
+
+
+class ExtendedStorage:
+    """
+    Extended storage interface — optional domains that default to
+    ``NotImplementedError``.
+
+    A backend need not implement any of these to be functional. The mixin
+    files under ``storage/sqlite_*.py`` implement these for SQLite-backed
+    backends; other backends may opt in piecewise.
+
+    Grouped domains:
+
+    - Typed memory (TTL, promotion, expiry)
+    - Entity refs / keyword DF / depth priors
+    - Maturation / co-activation / action log
+    - Versioning / reviews / compression / neuron snapshots
+    - Neuron lifecycle (frozen, ephemeral, last-accessed)
+    - Change log / devices / merkle (sync hub)
+    - Alerts / cognitive state / knowledge gaps / sources
+    """
 
     # ========== Typed Memory Operations ==========
 
@@ -1666,10 +1714,6 @@ class NeuralStorage(ABC):
 
     # ========== Alert Operations ==========
 
-    def _get_brain_id(self) -> str:
-        """Return current brain ID, raising ValueError if not set."""
-        raise NotImplementedError
-
     async def record_alert(self, alert: Alert) -> str:
         """Insert a new alert. Returns alert ID if inserted, empty string if suppressed."""
         raise NotImplementedError
@@ -1693,18 +1737,6 @@ class NeuralStorage(ABC):
     async def resolve_alerts_by_type(self, alert_types: list[str]) -> int:
         """Resolve all active/seen alerts of given types. Returns count."""
         raise NotImplementedError
-
-    # ========== Cleanup ==========
-
-    @abstractmethod
-    async def clear(self, brain_id: str) -> None:
-        """
-        Clear all data for a brain.
-
-        Args:
-            brain_id: The brain ID to clear
-        """
-        ...
 
     # ========== Cognitive State (optional, provided by SQLiteCognitiveMixin) ==========
 
@@ -1855,3 +1887,18 @@ class NeuralStorage(ABC):
     async def find_source_by_name(self, name: str) -> Any:
         """Find a source by exact name."""
         raise NotImplementedError
+
+
+class NeuralStorage(CoreStorage, ExtendedStorage):
+    """
+    Combined neural storage interface — core CRUD + optional extended domains.
+
+    This is the canonical type used throughout the codebase. Backends inherit
+    from :class:`NeuralStorage` and transitively from both :class:`CoreStorage`
+    (required) and :class:`ExtendedStorage` (optional per-method).
+
+    New backend authors: if you only need core graph operations, you *can*
+    inherit from :class:`CoreStorage` directly, but the codebase expects
+    ``NeuralStorage`` in most places — inheriting from it is the low-friction
+    path and opting into extended methods is pay-as-you-go.
+    """

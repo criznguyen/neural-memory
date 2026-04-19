@@ -1,6 +1,6 @@
 """Storage backends for NeuralMemory."""
 
-from neural_memory.storage.base import NeuralStorage
+from neural_memory.storage.base import CoreStorage, ExtendedStorage, NeuralStorage
 from neural_memory.storage.factory import HybridStorage, create_storage
 from neural_memory.storage.memory_store import InMemoryStorage
 from neural_memory.storage.shared_store import SharedStorage
@@ -13,7 +13,9 @@ from neural_memory.storage.sql.sqlite_dialect import SQLiteDialect
 from neural_memory.storage.sqlite_store import SQLiteStorage
 
 __all__ = [
+    "CoreStorage",
     "Dialect",
+    "ExtendedStorage",
     "HybridStorage",
     "InMemoryStorage",
     "NeuralStorage",
