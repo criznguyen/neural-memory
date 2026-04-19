@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.51.1] — 2026-04-19
+
+### Fixed
+
+- **CI build unblocked**: `.gitignore` rule `lib/` was over-greedy — it matched `dashboard/src/lib/`, preventing `neuron-colors.ts` (imported by Living Brain 3D + NetworkGraph) from being committed. Tightened to `/lib/` so only root Python build dir is ignored.
+- **Dashboard TypeScript build**: replaced `ElementType` with Phosphor's `Icon` type in 5 files (Sidebar, InsightsPage, OverviewPage, QuickActionsCard, TimelinePage) — React 19 types collapsed `ElementType` JSX props to `never`, breaking `className` assignment.
+- **BrainCanvas OrbitControls**: wrapped `invalidate` in an arrow so its `(frames?: number)` signature no longer clashes with OrbitControls' `onChange(e?: Event)` contract.
+
 ## [4.51.0] — 2026-04-18
 
 ### Added
