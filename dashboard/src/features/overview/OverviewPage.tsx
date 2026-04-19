@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Brain, Lightning, Link, Stack, Trash, Export } from "@phosphor-icons/react"
+import type { Icon } from "@phosphor-icons/react"
 import { toast } from "sonner"
 import { useTranslation } from "react-i18next"
 import QuickActionsCard from "./QuickActionsCard"
@@ -20,7 +21,7 @@ function KpiCard({
 }: {
   label: string
   value: string | number
-  icon: React.ElementType
+  icon: Icon
   loading: boolean
 }) {
   return (

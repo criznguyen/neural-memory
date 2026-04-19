@@ -64,7 +64,7 @@ function ControlsWithInvalidate({ autoRotate }: { autoRotate: boolean }) {
         autoRotateSpeed={0.35}
         minDistance={20}
         maxDistance={600}
-        onChange={invalidate}
+        onChange={() => invalidate()}
       />
       <AutoRotate enabled={autoRotate} invalidate={invalidate} />
     </>

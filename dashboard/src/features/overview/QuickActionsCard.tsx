@@ -1,5 +1,6 @@
 import { toast } from "sonner"
 import { CheckCircle, Warning, XCircle, Info, Copy } from "@phosphor-icons/react"
+import type { Icon } from "@phosphor-icons/react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -8,7 +9,7 @@ import { useConfigStatus } from "@/api/hooks/useDashboard"
 import type { ConfigStatusItem } from "@/api/types"
 
 type StatusConfig = {
-  icon: React.ElementType
+  icon: Icon
   badgeVariant: "success" | "warning" | "destructive" | "secondary"
   label: string
 }
