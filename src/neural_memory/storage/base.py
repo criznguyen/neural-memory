@@ -25,7 +25,8 @@ class CoreStorage(ABC):
     Covers the essential CRUD + graph operations every backend MUST implement:
     neurons, neuron states, synapses, graph traversal, fibers, brain metadata,
     lifecycle, and stats. A new backend only needs to fill in this class
-    (~28 abstract methods) to be usable.
+    (29 abstract methods) to be usable — every abstract is enforced by
+    ``ABC``, so missing impls fail at instantiation, not at first call.
 
     Extended domains (typed memory, alerts, drift, versioning, sync, etc.)
     live on :class:`ExtendedStorage` and default to ``NotImplementedError`` —
@@ -274,14 +275,6 @@ class CoreStorage(ABC):
         for s in states:
             await self.update_neuron_state(s)
 
-    async def get_all_neuron_states(self) -> list[NeuronState]:
-        """Get all neuron states for the current brain.
-
-        Returns:
-            List of all neuron states
-        """
-        raise NotImplementedError
-
     async def get_neuron_states_batch(self, neuron_ids: list[str]) -> dict[str, NeuronState]:
         """Get activation states for multiple neurons in one call.
 
@@ -391,14 +384,6 @@ class CoreStorage(ABC):
             True if deleted, False if not found
         """
         ...
-
-    async def get_all_synapses(self) -> list[Synapse]:
-        """Get all synapses for the current brain.
-
-        Returns:
-            List of all synapses
-        """
-        raise NotImplementedError
 
     async def get_synapses_for_neurons(
         self,
@@ -553,18 +538,6 @@ class CoreStorage(ABC):
         """
         ...
 
-    async def batch_update_ghost_shown(self, fiber_ids: list[str], timestamp: datetime) -> int:
-        """Batch update last_ghost_shown_at for multiple fibers.
-
-        Args:
-            fiber_ids: Fiber IDs to update
-            timestamp: Timestamp to set
-
-        Returns:
-            Number of fibers updated
-        """
-        raise NotImplementedError
-
     async def update_fiber_metadata(self, fiber_id: str, metadata: dict[str, Any]) -> None:
         """Merge metadata into a fiber's existing metadata JSON.
 
@@ -657,13 +630,14 @@ class CoreStorage(ABC):
 
     # ========== Brain Operations ==========
 
+    @abstractmethod
     def set_brain(self, brain_id: str) -> None:
         """Set the active brain context.
 
         Args:
             brain_id: The brain ID to activate
         """
-        raise NotImplementedError
+        ...
 
     @abstractmethod
     async def save_brain(self, brain: Brain) -> None:
@@ -687,17 +661,6 @@ class CoreStorage(ABC):
             The brain if found, None otherwise
         """
         ...
-
-    async def find_brain_by_name(self, name: str) -> Brain | None:
-        """Find a brain by its name.
-
-        Args:
-            name: The brain name to search for
-
-        Returns:
-            The brain if found, None otherwise
-        """
-        raise NotImplementedError
 
     @abstractmethod
     async def export_brain(self, brain_id: str) -> BrainSnapshot:
@@ -767,8 +730,16 @@ class CoreStorage(ABC):
     # ========== Brain Helpers ==========
 
     def _get_brain_id(self) -> str:
-        """Return current brain ID, raising ValueError if not set."""
-        raise NotImplementedError
+        """Return current brain ID, raising ValueError if not set.
+
+        Default implementation reads the ``brain_id`` property. Backends
+        may override for different state semantics, but the default is
+        sufficient for any backend that uses ``_current_brain_id``.
+        """
+        bid = self.brain_id
+        if bid is None:
+            raise ValueError("No brain context set — call set_brain() first")
+        return bid
 
     # ========== Cleanup ==========
 
@@ -802,6 +773,51 @@ class ExtendedStorage:
     - Change log / devices / merkle (sync hub)
     - Alerts / cognitive state / knowledge gaps / sources
     """
+
+    # ========== Bulk Enumeration (optional) ==========
+
+    async def get_all_neuron_states(self) -> list[NeuronState]:
+        """Get all neuron states for the current brain.
+
+        Returns:
+            List of all neuron states
+        """
+        raise NotImplementedError
+
+    async def get_all_synapses(self) -> list[Synapse]:
+        """Get all synapses for the current brain.
+
+        Returns:
+            List of all synapses
+        """
+        raise NotImplementedError
+
+    # ========== Brain Lookup (optional) ==========
+
+    async def find_brain_by_name(self, name: str) -> Brain | None:
+        """Find a brain by its name.
+
+        Args:
+            name: The brain name to search for
+
+        Returns:
+            The brain if found, None otherwise
+        """
+        raise NotImplementedError
+
+    # ========== Fiber Ghost Tracking (optional) ==========
+
+    async def batch_update_ghost_shown(self, fiber_ids: list[str], timestamp: datetime) -> int:
+        """Batch update last_ghost_shown_at for multiple fibers.
+
+        Args:
+            fiber_ids: Fiber IDs to update
+            timestamp: Timestamp to set
+
+        Returns:
+            Number of fibers updated
+        """
+        raise NotImplementedError
 
     # ========== Typed Memory Operations ==========
 
