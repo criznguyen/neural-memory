@@ -42,6 +42,7 @@ CO_ACTIVATION_MIN_STRENGTH = 0.5  # Min binding strength for co-activation primi
 CO_ACTIVATION_MIN_COUNT = 3  # Min co-fire count
 CO_ACTIVATION_PRIME_LEVEL = 0.10  # Activation boost for co-activated neurons
 MAX_CO_ACTIVATION_PRIMES = 20  # Max neurons primed from co-activation
+ABSTRACTION_BOOST_MULT = 1.25  # Multiplier for abstraction-induced CONCEPT neurons
 
 
 # ── Priming Metrics ───────────────────────────────────────────────────
@@ -209,8 +210,13 @@ async def prime_from_topics(
             # Scale boost by topic EMA weight and aggressiveness
             boost = TOPIC_PRE_WARM_LEVEL * min(ema_weight, 1.0) * aggressiveness
             for neuron in neurons:
+                # Abstraction-induced CONCEPT neurons represent whole clusters —
+                # boost them slightly so summaries surface before raw episodes.
+                n_boost = boost
+                if (neuron.metadata or {}).get("_abstraction_induced"):
+                    n_boost = boost * ABSTRACTION_BOOST_MULT
                 existing = priming_map.get(neuron.id, 0.0)
-                priming_map[neuron.id] = max(existing, boost)
+                priming_map[neuron.id] = max(existing, n_boost)
         except Exception:
             logger.debug("Topic priming lookup failed for '%s'", topic, exc_info=True)
 
@@ -292,8 +298,11 @@ async def prime_from_habits(
                 )
                 boost = HABIT_PRIME_LEVEL * syn.weight * aggressiveness
                 for n in related:
+                    n_boost = boost
+                    if (n.metadata or {}).get("_abstraction_induced"):
+                        n_boost = boost * ABSTRACTION_BOOST_MULT
                     existing = priming_map.get(n.id, 0.0)
-                    priming_map[n.id] = max(existing, boost)
+                    priming_map[n.id] = max(existing, n_boost)
 
                 predicted_count += 1
 

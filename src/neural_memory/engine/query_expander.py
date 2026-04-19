@@ -7,6 +7,37 @@ bidirectional and case-insensitive.
 
 from __future__ import annotations
 
+import warnings as _warnings
+
+# ── Vietnamese diacritic charset (shared with parser.detect_language) ───
+_VI_UNIQUE_CHARS = frozenset("ăắằẳẵặơờớởỡợưừứửữựđảẩẫậểễệỉĩỏổỗộủũỷỹỵ")
+
+
+def _has_vi_chars(text: str) -> bool:
+    """Cheap check: any Vietnamese-unique diacritic present?"""
+    return any(ch in _VI_UNIQUE_CHARS for ch in text.lower())
+
+
+def _tokenize_vi_compound(text: str) -> list[str]:
+    """Return pyvi-detected compound tokens (with underscore) from text.
+
+    Returns an empty list if pyvi is unavailable or tokenization fails.
+    Only compound tokens (containing ``_``) are returned — single-word
+    tokens are already handled by the existing space↔underscore logic.
+    """
+    try:
+        with _warnings.catch_warnings():
+            # pyvi emits numpy.VisibleDeprecationWarning (UserWarning subclass,
+            # NOT DeprecationWarning). Broaden suppression here too.
+            _warnings.simplefilter("ignore")
+            from pyvi import ViTokenizer
+        tokenized = ViTokenizer.tokenize(text)
+    except Exception:
+        return []
+
+    return [tok for tok in tokenized.split() if "_" in tok]
+
+
 # ── Synonym groups ────────────────────────────────────────────────
 # Each frozenset is a bidirectional synonym group: looking up any member
 # returns all others.  Add new groups freely.
@@ -123,6 +154,7 @@ def expand_terms(
     enable_cross_language: bool = True,
     max_per_term: int = 5,
     custom_synonyms: dict[str, list[str]] | None = None,
+    language: str = "auto",
 ) -> list[str]:
     """Expand keywords with synonyms, abbreviations, and cross-language hints.
 
@@ -136,6 +168,10 @@ def expand_terms(
         enable_cross_language: Enable cross-language hints.
         max_per_term: Max expansions per original term.
         custom_synonyms: Optional user-provided synonym groups.
+        language: Language hint ("vi", "en", or "auto"). When "vi" (or "auto"
+            with detected Vietnamese diacritics), multi-word keywords are run
+            through pyvi to extract compound tokens (e.g. "học sinh giỏi" →
+            adds "học_sinh" as a compound variant). No-op if pyvi missing.
 
     Returns:
         Flat list of unique keywords (originals + expansions), lowercased.
@@ -169,6 +205,15 @@ def expand_terms(
         elif "_" in kw_lower:
             space_variant = kw_lower.replace("_", " ")
             expansions.append(space_variant)
+
+        # pyvi-assisted compound extraction: for multi-word Vietnamese
+        # phrases (3+ tokens), pyvi knows the right compound boundaries
+        # that naive space→underscore can't guess.
+        if kw_lower.count(" ") >= 2 and (language == "vi" or _has_vi_chars(kw_lower)):
+            for compound in _tokenize_vi_compound(kw_lower):
+                compound_lower = compound.lower()
+                if compound_lower not in seen:
+                    expansions.append(compound_lower)
 
         # Synonym expansion
         if enable_synonyms:

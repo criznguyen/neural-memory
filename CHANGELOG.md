@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.52.0] — 2026-04-20
+
+### Improved — 3 Cross-Feature Wirings
+
+Closes three integration gaps flagged in Section 9 of `.rune/FEATURE_REGISTRY.md`. Each is small in LOC but meaningful: features that already existed now actually talk to each other.
+
+- **Dynamic abstraction → stratum MMR** (Section 2c/Section 2 integration). `_apply_mmr_diversity` now tracks `abstraction_counts` alongside `schema_counts`. Fibers anchored on a CONCEPT neuron with `_abstraction_induced=True`, or carrying `_abstract_neuron_id` from MERGE consolidation, are capped per-cluster using the same `max_per_stratum` budget. Prevents a single "super-abstract" from dominating top-K results.
+- **Vietnamese keyword extraction → query_expander** (Section 2b/Section 2 integration). `expand_terms()` now accepts a `language` parameter. When set to `"vi"` (or auto-detected via Vietnamese diacritics), multi-word phrases (3+ tokens) are run through pyvi's `ViTokenizer` to extract compound tokens — so "học sinh giỏi nhất" now surfaces "học_sinh" as an expansion candidate. Graceful no-op when pyvi is not installed. Wired through `stimulus.language` in `RecallPipeline`.
+- **Abstraction → priming** (Section 2e integration). `prime_from_topics` and `prime_from_habits` now apply a +25% boost (`ABSTRACTION_BOOST_MULT = 1.25`) to neurons whose metadata carries `_abstraction_induced=True`. Concept-level summaries surface before raw episodes in primed recall rounds.
+
+### Tests
+
+- `tests/unit/test_v4_52_wirings.py` — 9 tests pinning each wiring independently so future edits don't silently regress the integrations.
+
+### Registry
+
+- `.rune/FEATURE_REGISTRY.md` Section 9 updates: the three gaps above move from OPEN → FIXED. Three other gaps remain (DREAM hubs + graph density, auto-capture + FastAPI, agent ID + provenance) — queued for future versions.
+
 ## [4.51.4] — 2026-04-19
 
 ### Fixed
