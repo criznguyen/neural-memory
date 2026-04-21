@@ -7,9 +7,10 @@ import {
   TrendUp,
   ChartBar,
 } from "@phosphor-icons/react"
+import type { Icon } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 import { PageSkeleton } from "@/components/common/PageSkeleton"
-import type { ComponentType, ElementType } from "react"
+import type { ComponentType } from "react"
 
 /* ------------------------------------------------------------------ */
 /*  Lazy-loaded tab content — reuses existing full page components     */
@@ -27,7 +28,7 @@ const ToolStatsPage = lazy(() => import("@/features/tool-stats/ToolStatsPage"))
 interface TabDef {
   id: string
   labelKey: string
-  icon: ElementType
+  icon: Icon
   component: ComponentType
 }
 

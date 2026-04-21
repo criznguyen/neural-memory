@@ -1154,7 +1154,10 @@ class ReflexPipeline:
         # Use activation_strategy = "hnsw_hybrid" in config to opt in.
 
         try:
-            density = await self._storage.get_graph_density()  # type: ignore[attr-defined]
+            # exclude_hubs=True: DREAM hub synapses are consolidation
+            # artefacts; including them inflates density and misclassifies
+            # organic-sparse graphs as dense.
+            density = await self._storage.get_graph_density(exclude_hubs=True)  # type: ignore[attr-defined]
         except Exception:
             return "classic"  # Fallback if storage doesn't support it
 
@@ -2372,6 +2375,7 @@ class ReflexPipeline:
                 and self._embedding_provider is None  # skip if embedding handles cross-lang
             ),
             max_per_term=self._config.query_expansion_max_per_term,
+            language=getattr(stimulus, "language", "auto"),
         )
 
         # Token normalization: add Vietnamese compound + diacritics-stripped variants
@@ -2953,6 +2957,7 @@ class ReflexPipeline:
 
         stratum_counts: _Counter[str] = _Counter()
         schema_counts: _Counter[str] = _Counter()
+        abstraction_counts: _Counter[str] = _Counter()
         _stratum_cap = getattr(self._config, "stratum_diversity_cap", 0.4)
         _target_count = 10
 
@@ -3001,12 +3006,28 @@ class ReflexPipeline:
                 if schema_counts[_schema_id] >= max_per_stratum:
                     continue
 
+            # Abstraction-cluster diversity (v4.52): cap fibers anchored on same
+            # abstraction-induced CONCEPT neuron, or fibers carrying `_abstract_neuron_id`
+            # from MERGE consolidation. Prevents one super-abstract from dominating top-K.
+            _abstraction_id: str | None = None
+            if anchor_neuron is not None and (anchor_neuron.metadata or {}).get(
+                "_abstraction_induced"
+            ):
+                _abstraction_id = anchor_neuron.id
+            elif fiber_meta.get("_abstract_neuron_id"):
+                _abstraction_id = str(fiber_meta["_abstract_neuron_id"])
+            if _abstraction_id and len(selected) >= 3:
+                if abstraction_counts[_abstraction_id] >= max_per_stratum:
+                    continue
+
             selected.append(fiber)
             selected_neuron_sets.append(set(fiber.neuron_ids))
             selected_hashes.append(fiber_hash)
             stratum_counts[stratum] += 1
             if _schema_id:
                 schema_counts[_schema_id] += 1
+            if _abstraction_id:
+                abstraction_counts[_abstraction_id] += 1
 
         return selected
 

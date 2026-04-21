@@ -13,14 +13,14 @@ import {
   Gauge,
   Storefront,
 } from "@phosphor-icons/react"
+import type { Icon } from "@phosphor-icons/react"
 import { cn } from "@/lib/utils"
 import { useLayoutStore } from "@/stores/useLayoutStore"
 import { useTranslation } from "react-i18next"
-import type { ElementType } from "react"
 
 interface NavItem {
   to: string
-  icon: ElementType
+  icon: Icon
   labelKey: string
   separator?: boolean
 }

@@ -18,12 +18,22 @@ if TYPE_CHECKING:
     from neural_memory.engine.memory_stages import MaturationRecord, MemoryStage
 
 
-class NeuralStorage(ABC):
+class CoreStorage(ABC):
     """
-    Abstract interface for neural graph storage.
+    Core storage interface — minimal abstract surface for a neural graph backend.
 
-    Implementations must provide all methods for storing and
-    retrieving neurons, synapses, fibers, and brain metadata.
+    Covers the essential CRUD + graph operations every backend MUST implement:
+    neurons, neuron states, synapses, graph traversal, fibers, brain metadata,
+    lifecycle, and stats. A new backend only needs to fill in this class
+    (29 abstract methods) to be usable — every abstract is enforced by
+    ``ABC``, so missing impls fail at instantiation, not at first call.
+
+    Extended domains (typed memory, alerts, drift, versioning, sync, etc.)
+    live on :class:`ExtendedStorage` and default to ``NotImplementedError`` —
+    backends override only what they need.
+
+    :class:`NeuralStorage` is the combined interface used everywhere in the
+    codebase — callers stay unchanged.
     """
 
     _current_brain_id: str | None
@@ -265,14 +275,6 @@ class NeuralStorage(ABC):
         for s in states:
             await self.update_neuron_state(s)
 
-    async def get_all_neuron_states(self) -> list[NeuronState]:
-        """Get all neuron states for the current brain.
-
-        Returns:
-            List of all neuron states
-        """
-        raise NotImplementedError
-
     async def get_neuron_states_batch(self, neuron_ids: list[str]) -> dict[str, NeuronState]:
         """Get activation states for multiple neurons in one call.
 
@@ -382,14 +384,6 @@ class NeuralStorage(ABC):
             True if deleted, False if not found
         """
         ...
-
-    async def get_all_synapses(self) -> list[Synapse]:
-        """Get all synapses for the current brain.
-
-        Returns:
-            List of all synapses
-        """
-        raise NotImplementedError
 
     async def get_synapses_for_neurons(
         self,
@@ -544,18 +538,6 @@ class NeuralStorage(ABC):
         """
         ...
 
-    async def batch_update_ghost_shown(self, fiber_ids: list[str], timestamp: datetime) -> int:
-        """Batch update last_ghost_shown_at for multiple fibers.
-
-        Args:
-            fiber_ids: Fiber IDs to update
-            timestamp: Timestamp to set
-
-        Returns:
-            Number of fibers updated
-        """
-        raise NotImplementedError
-
     async def update_fiber_metadata(self, fiber_id: str, metadata: dict[str, Any]) -> None:
         """Merge metadata into a fiber's existing metadata JSON.
 
@@ -648,13 +630,14 @@ class NeuralStorage(ABC):
 
     # ========== Brain Operations ==========
 
+    @abstractmethod
     def set_brain(self, brain_id: str) -> None:
         """Set the active brain context.
 
         Args:
             brain_id: The brain ID to activate
         """
-        raise NotImplementedError
+        ...
 
     @abstractmethod
     async def save_brain(self, brain: Brain) -> None:
@@ -678,17 +661,6 @@ class NeuralStorage(ABC):
             The brain if found, None otherwise
         """
         ...
-
-    async def find_brain_by_name(self, name: str) -> Brain | None:
-        """Find a brain by its name.
-
-        Args:
-            name: The brain name to search for
-
-        Returns:
-            The brain if found, None otherwise
-        """
-        raise NotImplementedError
 
     @abstractmethod
     async def export_brain(self, brain_id: str) -> BrainSnapshot:
@@ -754,6 +726,98 @@ class NeuralStorage(ABC):
             Dict with enhanced statistics
         """
         ...
+
+    # ========== Brain Helpers ==========
+
+    def _get_brain_id(self) -> str:
+        """Return current brain ID, raising ValueError if not set.
+
+        Default implementation reads the ``brain_id`` property. Backends
+        may override for different state semantics, but the default is
+        sufficient for any backend that uses ``_current_brain_id``.
+        """
+        bid = self.brain_id
+        if bid is None:
+            raise ValueError("No brain context set — call set_brain() first")
+        return bid
+
+    # ========== Cleanup ==========
+
+    @abstractmethod
+    async def clear(self, brain_id: str) -> None:
+        """
+        Clear all data for a brain.
+
+        Args:
+            brain_id: The brain ID to clear
+        """
+        ...
+
+
+class ExtendedStorage:
+    """
+    Extended storage interface — optional domains that default to
+    ``NotImplementedError``.
+
+    A backend need not implement any of these to be functional. The mixin
+    files under ``storage/sqlite_*.py`` implement these for SQLite-backed
+    backends; other backends may opt in piecewise.
+
+    Grouped domains:
+
+    - Typed memory (TTL, promotion, expiry)
+    - Entity refs / keyword DF / depth priors
+    - Maturation / co-activation / action log
+    - Versioning / reviews / compression / neuron snapshots
+    - Neuron lifecycle (frozen, ephemeral, last-accessed)
+    - Change log / devices / merkle (sync hub)
+    - Alerts / cognitive state / knowledge gaps / sources
+    """
+
+    # ========== Bulk Enumeration (optional) ==========
+
+    async def get_all_neuron_states(self) -> list[NeuronState]:
+        """Get all neuron states for the current brain.
+
+        Returns:
+            List of all neuron states
+        """
+        raise NotImplementedError
+
+    async def get_all_synapses(self) -> list[Synapse]:
+        """Get all synapses for the current brain.
+
+        Returns:
+            List of all synapses
+        """
+        raise NotImplementedError
+
+    # ========== Brain Lookup (optional) ==========
+
+    async def find_brain_by_name(self, name: str) -> Brain | None:
+        """Find a brain by its name.
+
+        Args:
+            name: The brain name to search for
+
+        Returns:
+            The brain if found, None otherwise
+        """
+        raise NotImplementedError
+
+    # ========== Fiber Ghost Tracking (optional) ==========
+
+    async def batch_update_ghost_shown(self, fiber_ids: list[str], timestamp: datetime) -> int:
+        """Batch update last_ghost_shown_at for multiple fibers.
+
+        Args:
+            fiber_ids: Fiber IDs to update
+            timestamp: Timestamp to set
+
+        Returns:
+            Number of fibers updated
+        """
+        raise NotImplementedError
 
     # ========== Typed Memory Operations ==========
 
@@ -1666,10 +1730,6 @@ class NeuralStorage(ABC):
 
     # ========== Alert Operations ==========
 
-    def _get_brain_id(self) -> str:
-        """Return current brain ID, raising ValueError if not set."""
-        raise NotImplementedError
-
     async def record_alert(self, alert: Alert) -> str:
         """Insert a new alert. Returns alert ID if inserted, empty string if suppressed."""
         raise NotImplementedError
@@ -1693,18 +1753,6 @@ class NeuralStorage(ABC):
     async def resolve_alerts_by_type(self, alert_types: list[str]) -> int:
         """Resolve all active/seen alerts of given types. Returns count."""
         raise NotImplementedError
-
-    # ========== Cleanup ==========
-
-    @abstractmethod
-    async def clear(self, brain_id: str) -> None:
-        """
-        Clear all data for a brain.
-
-        Args:
-            brain_id: The brain ID to clear
-        """
-        ...
 
     # ========== Cognitive State (optional, provided by SQLiteCognitiveMixin) ==========
 
@@ -1855,3 +1903,18 @@ class NeuralStorage(ABC):
     async def find_source_by_name(self, name: str) -> Any:
         """Find a source by exact name."""
         raise NotImplementedError
+
+
+class NeuralStorage(CoreStorage, ExtendedStorage):
+    """
+    Combined neural storage interface — core CRUD + optional extended domains.
+
+    This is the canonical type used throughout the codebase. Backends inherit
+    from :class:`NeuralStorage` and transitively from both :class:`CoreStorage`
+    (required) and :class:`ExtendedStorage` (optional per-method).
+
+    New backend authors: if you only need core graph operations, you *can*
+    inherit from :class:`CoreStorage` directly, but the codebase expects
+    ``NeuralStorage`` in most places — inheriting from it is the low-friction
+    path and opting into extended methods is pay-as-you-go.
+    """

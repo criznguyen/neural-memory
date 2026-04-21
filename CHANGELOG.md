@@ -5,6 +5,113 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.52.2] — 2026-04-20
+
+### Improved — DREAM Hubs Now Consumed by Retrieval
+
+Closes the Section 9 integration gap **DREAM hubs + graph density scaling** — hub synapses were being *written* by consolidation but never *read* back by retrieval.
+
+- **Graph density excludes DREAM hubs by default for strategy selection.** `get_graph_density()` grows an `exclude_hubs: bool = False` parameter on both the SQL mixin (`storage/sql/mixins/calibration.py`) and the legacy SQLite backend (`storage/sqlite_calibration.py`). When True, it filters out synapses whose metadata contains `_hub=True` via `json_extract(metadata, '$._hub') IS NULL` / `metadata->>'_hub' IS NULL`. `retrieval._auto_select_strategy()` now calls with `exclude_hubs=True` so DREAM's synthesized hub links don't inflate density and trick the engine into picking PPR on graphs that are organically sparse.
+- **PPR dampens hub edges during push.** `PPRActivation` multiplies the effective weight of `_hub=True` synapses by `BrainConfig.hub_edge_dampening` (default `0.5`) when building the neighbor cache. Hub edges still carry activation — they just can't hijack random walks at the expense of genuine edges. Setting the config to `1.0` disables the dampening for users who want the pre-v4.52.2 behavior.
+- **New config field.** `BrainConfig.hub_edge_dampening: float = 0.5`. Documented inline.
+
+### Docs
+
+- `.rune/FEATURE_REGISTRY.md` Section 2c (DREAM hub extraction) and Section 9 (DREAM hubs + graph density scaling) updated to reflect the fix — the gap moves from OPEN → FIXED v4.52.2.
+
+### Tests
+
+- `tests/unit/test_v4_52_2_hub_aware_retrieval.py` — 8 tests: density computation with/without hub exclusion on a real SQLite brain, `_auto_select_strategy` passes `exclude_hubs=True`, PPR hub dampening (hub target gets less activation than plain target at equal base weight), dampening disabled when factor=1.0, default config value.
+
+## [4.52.1] — 2026-04-20
+
+### Improved — Activation Decay Integrated into Consolidation
+
+- **`DECAY` is now a first-class consolidation strategy (Tier 0)**. Previously the Ebbinghaus decay pass only ran on the scheduled 12h cycle, so every consolidation between those cycles worked off stale activation + synapse weights. Old memories kept their full activation and crowded fresh ones out of recall. `ConsolidationEngine` now runs `DecayManager.apply_decay()` as a dedicated first tier before `PRUNE` — so PRUNE sees the actually-decayed activation and can drop items below its threshold on the same run.
+- **Safe by construction.** DECAY sits in its own frozenset tier (before the PRUNE/LEARN_HABITS/DEDUP tier) so execution order is explicit, not frozenset-hash-dependent. `min_age_days` in `DecayManager` still guards against double-decaying recently-touched memories. `dry_run=True` propagates correctly — the report records stats without persisting changes. Failures from the decay pass are logged and swallowed (`logger.warning`) so a storage backend issue cannot take consolidation down with it.
+- **Report surface.** `ConsolidationReport.extra["decay"]` carries `{neurons_processed, neurons_decayed, synapses_processed, synapses_decayed, duration_ms}` so callers (dashboard, MCP clients, pre-ship checks) can inspect what the decay pass did without a second round-trip.
+
+### Docs
+
+- `.rune/FEATURE_REGISTRY.md` Section 10 updates: freshness weight tweaks marked DONE (already at 15% / 0.15 default on `BrainConfig`) — the "stale" audit from the v4.52.0 review found these shipped separately. Decay ↔ consolidation gap moves from OPEN → FIXED. Context compiler keyword boost marked DONE (already case-normalized).
+
+### Tests
+
+- `tests/unit/test_v4_52_1_decay_in_consolidation.py` — 7 tests covering the DECAY enum, tier ordering (DECAY < PRUNE), dispatch wiring, report surface (DECAY alone + ALL), dry_run propagation, and non-fatal failure handling.
+
+## [4.52.0] — 2026-04-20
+
+### Improved — 3 Cross-Feature Wirings
+
+Closes three integration gaps flagged in Section 9 of `.rune/FEATURE_REGISTRY.md`. Each is small in LOC but meaningful: features that already existed now actually talk to each other.
+
+- **Dynamic abstraction → stratum MMR** (Section 2c/Section 2 integration). `_apply_mmr_diversity` now tracks `abstraction_counts` alongside `schema_counts`. Fibers anchored on a CONCEPT neuron with `_abstraction_induced=True`, or carrying `_abstract_neuron_id` from MERGE consolidation, are capped per-cluster using the same `max_per_stratum` budget. Prevents a single "super-abstract" from dominating top-K results.
+- **Vietnamese keyword extraction → query_expander** (Section 2b/Section 2 integration). `expand_terms()` now accepts a `language` parameter. When set to `"vi"` (or auto-detected via Vietnamese diacritics), multi-word phrases (3+ tokens) are run through pyvi's `ViTokenizer` to extract compound tokens — so "học sinh giỏi nhất" now surfaces "học_sinh" as an expansion candidate. Graceful no-op when pyvi is not installed. Wired through `stimulus.language` in `RecallPipeline`.
+- **Abstraction → priming** (Section 2e integration). `prime_from_topics` and `prime_from_habits` now apply a +25% boost (`ABSTRACTION_BOOST_MULT = 1.25`) to neurons whose metadata carries `_abstraction_induced=True`. Concept-level summaries surface before raw episodes in primed recall rounds.
+
+### Tests
+
+- `tests/unit/test_v4_52_wirings.py` — 9 tests pinning each wiring independently so future edits don't silently regress the integrations.
+
+### Registry
+
+- `.rune/FEATURE_REGISTRY.md` Section 9 updates: the three gaps above move from OPEN → FIXED. Three other gaps remain (DREAM hubs + graph density, auto-capture + FastAPI, agent ID + provenance) — queued for future versions.
+
+## [4.51.4] — 2026-04-19
+
+### Fixed
+
+- **Issue #132 — `nmem recall --limit` restored** (Bé Mi): `recall` now accepts `--limit` / `-l N` again as an approximate cap. Internally mapped to `max_tokens = max(100, N * 200)` and truncates the displayed `fibers_matched` list to `N`. Default `None` preserves previous behaviour when the flag is omitted.
+- **Issue #132 — pyvi warning leak**: `_tokenize_vietnamese()` and the auto-capture pyvi probe now wrap the import in `warnings.simplefilter("ignore")`. The previous `DeprecationWarning` filter missed `numpy.VisibleDeprecationWarning`, which is a `UserWarning` subclass, so pyvi's first tokenization still emitted a warning. Broadened to silence all warnings during the pyvi import path.
+- **Issue #132 — doctor schema-migration hint**: the auto-fix message for "Schema version mismatch" no longer claims a `--fix` flag exists. Now reads: `"Auto-migrates on next read/write — run any command (e.g. 'nmem recall \"test\"' or 'nmem doctor --fix') to trigger now"`.
+
+### Improved
+
+- **Issue #132 — doctor tiered output**: `nmem doctor` now groups findings into three priority tiers so users can distinguish "broken" from "missing optional":
+  - `CORE` — schema, Python version, brain database, permissions (must be green)
+  - `RECOMMENDED` — hooks, MCP server (should be green for best UX)
+  - `OPTIONAL` — Pro features, hub status (informational)
+  Each tier renders under its own header. Exit code stays driven by core-issue count only.
+
+### Tests
+
+- `tests/unit/test_recall_limit.py` — regression test confirming `recall()` exposes a `--limit` parameter with `None` default and `int | None` annotation.
+- `tests/unit/test_vietnamese_keywords.py::test_tokenize_does_not_leak_pyvi_warnings` — asserts no pyvi/numpy warnings escape `_tokenize_vietnamese()` (skips if pyvi not installed).
+- `tests/unit/test_doctor_enhanced.py` — new `TestPriorityTiers` + `TestSchemaMigrationHint` classes covering tier assignments and the new migration message.
+
+## [4.51.3] — 2026-04-19
+
+### Changed
+
+- **Storage ABC slim-down** — split `NeuralStorage` (1900-LOC monolithic ABC) into a layered hierarchy without touching any caller or backend:
+  - `CoreStorage(ABC)` — 29 genuinely abstract methods covering CRUD, graph traversal, fibers, brain meta, lifecycle, stats. `_get_brain_id()` now ships with a concrete default (reads `self.brain_id`, raises `ValueError` if unset). A new backend only needs to fill these 29 slots to be usable, and ABC enforces the contract at instantiation time.
+  - `ExtendedStorage` (plain class) — optional domains (typed memory, alerts, drift, versioning, sync hub, bulk enumeration, ghost tracking, etc.) with every method defaulting to `raise NotImplementedError`. Backends override piecewise.
+  - `NeuralStorage(CoreStorage, ExtendedStorage)` — canonical union used throughout the codebase; existing inheritance chains (`SQLiteStorage`, `SQLStorage`, `PostgreSQLStorage`, `InMemoryStorage`, `SharedStorage`) are unchanged.
+- Tightened contract after review: `set_brain` is now a true `@abstractmethod` (previously a stub); `get_all_neuron_states`, `get_all_synapses`, `find_brain_by_name`, and `batch_update_ghost_shown` moved from CoreStorage stubs to `ExtendedStorage` (truthful tier — `SharedStorage` and similar proxy backends genuinely do not support them).
+
+## [4.51.2] — 2026-04-19
+
+### Added
+
+- **Storage Evolution Phase 3 — Consolidation + Abstraction Upgrade**:
+  - **Causal prune guard**: `PRUNE` strategy now skips `CAUSED_BY` / `LEADS_TO` / `ENABLES` / `PREVENTS` synapses unless they carry `_inferred=True`. Causal knowledge survives decay sweeps; auto-inferred causal noise remains prunable.
+  - **Dynamic abstraction induction**: new `engine.abstraction.induce_abstraction(cluster)` condenses a cluster of episodic neurons into one CONCEPT neuron (abstraction level 2) using stopword-filtered term-frequency extraction. Content template: `"[N] memories about [TOPIC]: [TERMS]. Key: [exemplar]"`. Exemplar chosen by highest `goal_priority` (ties by recency). Metadata traces `_abstraction_source_ids`, `_abstraction_terms`, `_abstraction_exemplar_id`, `_abstraction_induced=True`.
+  - **MERGE strategy wiring**: large summaries (cluster size ≥ `abstraction_cluster_min_size`, default 5) now persist the abstract neuron and wire `IS_A` links (weight 0.6) from each cluster exemplar → abstract. Gated by `ConsolidationConfig.enable_dynamic_abstraction` (default True). `ConsolidationReport.concepts_created` surfaces the count.
+  - **DREAM hub extraction**: post-delegation pass identifies neurons participating in ≥3 consolidation events, creates `RELATED_TO` synapses between the top two hubs with `_hub=True` / `_semantic_discovery=True` metadata. Feeds `report.patterns_extracted`.
+  - **REPLAY semantic census**: queries all `CONCEPT` neurons (limit 500), counts those with `_abstraction_induced=True`, stores snapshot in `report.extra`.
+
+### Tests
+
+- `tests/unit/test_storage_evolution_phase3.py` — 14 tests covering causal prune guard set contents, inferred-causal exclusion, manual-causal protection, `induce_abstraction` template + metadata + stopword/short-token filtering + exemplar priority + content truncation, and MERGE config surfaces.
+
+## [4.51.1] — 2026-04-19
+
+### Fixed
+
+- **CI build unblocked**: `.gitignore` rule `lib/` was over-greedy — it matched `dashboard/src/lib/`, preventing `neuron-colors.ts` (imported by Living Brain 3D + NetworkGraph) from being committed. Tightened to `/lib/` so only root Python build dir is ignored.
+- **Dashboard TypeScript build**: replaced `ElementType` with Phosphor's `Icon` type in 5 files (Sidebar, InsightsPage, OverviewPage, QuickActionsCard, TimelinePage) — React 19 types collapsed `ElementType` JSX props to `never`, breaking `className` assignment.
+- **BrainCanvas OrbitControls**: wrapped `invalidate` in an arrow so its `(frames?: number)` signature no longer clashes with OrbitControls' `onChange(e?: Event)` contract.
+
 ## [4.51.0] — 2026-04-18
 
 ### Added

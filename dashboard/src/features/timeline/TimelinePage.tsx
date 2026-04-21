@@ -17,6 +17,7 @@ import {
 } from "recharts"
 import { useTranslation } from "react-i18next"
 import { Brain, Stack, Lightning, CalendarBlank } from "@phosphor-icons/react"
+import type { Icon } from "@phosphor-icons/react"
 
 const RANGE_OPTIONS = [
   { days: 7, key: "range7d" },
@@ -44,7 +45,7 @@ function KpiCard({
 }: {
   label: string
   value: string | number
-  icon: React.ElementType
+  icon: Icon
   loading: boolean
 }) {
   return (
